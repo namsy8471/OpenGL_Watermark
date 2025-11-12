@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="OpenGL_Watermark/OpenGL_Watermark.vcxproj" Id="088e3143-83d5-46b0-9ec6-59283676b9cc" />
+</Solution>
