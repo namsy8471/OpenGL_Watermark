@@ -1,7 +1,16 @@
-#include <glad/glad.h>
+ï»¿#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+
 #include <iostream>
+
+void glfw_error_callback(int error, const char* description)
+{
+	std::cerr << "GLFW Error (" << error << "): " << description << std::endl;
+}
 
 void framebuffer_size_callback([[maybe_unused]]GLFWwindow* window, int width, int height)
 {
@@ -16,8 +25,10 @@ int main()
 		std::cerr << "Failed to initialize GLFW" << std::endl;
 		return -1;
 	}
+	std::cout << "GLFW initialized successfully" << std::endl;
 
 	// Set GLFW window hints for OpenGL version and profile
+	const char* glsl_version = "#version 330 core";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -34,10 +45,12 @@ int main()
 		glfwTerminate();
 		return -1;
 	}
+	std::cout << "GLFW window created successfully" << std::endl;
 
 	// !important
 	// Make the OpenGL context binding
 	glfwMakeContextCurrent(window);
+	glfwSwapInterval(0); // V-Sync Off
 
 	// Set the framebuffer size callback
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
@@ -50,25 +63,46 @@ int main()
 		glfwTerminate();
 		return -1;
 	}
+	// Print OpenGL version
+	std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
+
+	// [ImGui] Create ImGui Context
+	// ---------------------------------------------------
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	(void)io;
+
+	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Viewport Mode on
+
+	// ImGui Style
+	ImGui::StyleColorsDark();
+
+	// 'GLFW' ì™€ 'OpenGL3' imgui ì´ˆê¸°í™”
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init(glsl_version);
+
+	float myParam = 0.5f;
+	float color[3] = { 0.0f, 0.5f, 0.5f };
 
 	// Set Viewport
 	glViewport(0, 0, 800, 600);
 
 
-	// C++ ÄÚµå ³»¿¡ ¹®ÀÚ¿­·Î ¼ÎÀÌ´õ¸¦ Á¤ÀÇÇÕ´Ï´Ù.
+	// C++ ï¿½Úµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ú¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Õ´Ï´ï¿½.
 	// 1. Vertex Shader (GLSL 3.30 Core)
 		const char* vertexShaderSource = R"glsl(
 		#version 330 core
     
-		// ÀÌ ¼ÎÀÌ´õ´Â 1°³ÀÇ 'ÀÔ·Â(in)'À» ¹Ş½À´Ï´Ù.
-		// layout (location = 0)Àº '0¹ø ½½·Ô'ÀÌ¶ó´Â ¶æÀÔ´Ï´Ù. (VAO¿Í ¿¬°áµÉ ÁöÁ¡)
-		layout (location = 0) in vec3 aPos; // "aPos"¶ó´Â ÀÌ¸§ÀÇ 3Â÷¿ø º¤ÅÍ(vec3) ÀÔ·Â
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½ï¿½ï¿½ 1ï¿½ï¿½ï¿½ï¿½ 'ï¿½Ô·ï¿½(in)'ï¿½ï¿½ ï¿½Ş½ï¿½ï¿½Ï´ï¿½.
+		// layout (location = 0)ï¿½ï¿½ '0ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½'ï¿½Ì¶ï¿½ï¿½ ï¿½ï¿½ï¿½Ô´Ï´ï¿½. (VAOï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
+		layout (location = 0) in vec3 aPos; // "aPos"ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ 3ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(vec3) ï¿½Ô·ï¿½
 
 		void main()
 		{
-			// ÀÔ·Â¹ŞÀº aPos¸¦ '±×´ë·Î' gl_PositionÀÌ¶ó´Â 'Ãâ·Â'À¸·Î ³»º¸³À´Ï´Ù.
-			// gl_PositionÀº VSÀÇ ÃÖÁ¾ Á¤Á¡ À§Ä¡¸¦ ³ªÅ¸³»´Â '³»Àå º¯¼ö'ÀÔ´Ï´Ù.
-			// (x, y, z, w) 4Â÷¿øÀÌ¾î¾ß ÇÏ¹Ç·Î vec4·Î º¯È¯ÇÕ´Ï´Ù. w=1.0Àº Åõ¿µ º¯È¯À» À§ÇÔÀÔ´Ï´Ù.
+			// ï¿½Ô·Â¹ï¿½ï¿½ï¿½ aPosï¿½ï¿½ 'ï¿½×´ï¿½ï¿½' gl_Positionï¿½Ì¶ï¿½ï¿½ 'ï¿½ï¿½ï¿½'ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.
+			// gl_Positionï¿½ï¿½ VSï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ 'ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½'ï¿½Ô´Ï´ï¿½.
+			// (x, y, z, w) 4ï¿½ï¿½ï¿½ï¿½ï¿½Ì¾ï¿½ï¿½ ï¿½Ï¹Ç·ï¿½ vec4ï¿½ï¿½ ï¿½ï¿½È¯ï¿½Õ´Ï´ï¿½. w=1.0ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ô´Ï´ï¿½.
 			gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
 		}
 	)glsl";
@@ -77,138 +111,120 @@ int main()
 		const char* fragmentShaderSource = R"glsl(
 		#version 330 core
     
-		// ÀÌ ¼ÎÀÌ´õ´Â 1°³ÀÇ 'Ãâ·Â(out)'À» °¡Áı´Ï´Ù.
-		out vec4 FragColor; // "FragColor"¶ó´Â ÀÌ¸§ÀÇ 4Â÷¿ø º¤ÅÍ(RGBA) Ãâ·Â
+		// ï¿½ï¿½ ï¿½ï¿½ï¿½Ì´ï¿½ï¿½ï¿½ 1ï¿½ï¿½ï¿½ï¿½ 'ï¿½ï¿½ï¿½(out)'ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.
+		out vec4 FragColor; // "FragColor"ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ 4ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(RGBA) ï¿½ï¿½ï¿½
 
 		void main()
 		{
-			// ÀÌ ÇÈ¼¿À» 'ÁÖÈ²»ö' (R=1.0, G=0.5, B=0.2)À¸·Î Ä¥ÇÕ´Ï´Ù.
+			// ï¿½ï¿½ ï¿½È¼ï¿½ï¿½ï¿½ 'ï¿½ï¿½È²ï¿½ï¿½' (R=1.0, G=0.5, B=0.2)ï¿½ï¿½ï¿½ï¿½ Ä¥ï¿½Õ´Ï´ï¿½.
 			FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
 		}
 	)glsl";
 
-	// [ÀÌ ÄÚµå´Â main() ÇÔ¼ö ½ÃÀÛ ºÎºĞ, 'ÃÊ±âÈ­' ½Ã 1¹ø¸¸ ½ÇÇàµË´Ï´Ù]
-
-	// 1. ¼ÎÀÌ´õ °´Ã¼ »ı¼º
+	// Shader Compilation
 	unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 
-	// 2. ¼ÎÀÌ´õ ¼Ò½º ÄÚµå(C++ ¹®ÀÚ¿­)¸¦ ¼ÎÀÌ´õ °´Ã¼¿¡ ¿¬°á
+	// Attach Shader Source Code
 	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
 	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
 
-	// 3. ¡Ú µå¶óÀÌ¹ö°¡ GLSLÀ» GPU ±â°è¾î·Î ÄÄÆÄÀÏ ¡Ú
+	// Compile Shader
 	glCompileShader(vertexShader);
 	glCompileShader(fragmentShader);
-	// (½ÇÁ¦ ÇÁ·Î´ö¼Ç ÄÚµå¿¡¼­´Â ¿©±â¼­ ÄÄÆÄÀÏ ¼º°ø ¿©ºÎ¸¦ glGetShaderiv·Î È®ÀÎÇØ¾ß ÇÕ´Ï´Ù)
 
-	// 4. '¼ÎÀÌ´õ ÇÁ·Î±×·¥' °´Ã¼ »ı¼º (VS¿Í FS¸¦ ´ãÀ» 'Åë')
+	// Shader Program Linking
 	unsigned int shaderProgram = glCreateProgram();
 
-	// 5. ÄÄÆÄÀÏµÈ ¼ÎÀÌ´õµéÀ» 'ÇÁ·Î±×·¥'¿¡ ºÎÂø(Attach)
+	// Attach Shaders to the Program
 	glAttachShader(shaderProgram, vertexShader);
 	glAttachShader(shaderProgram, fragmentShader);
 
-	// 6. ¡Ú ¼ÎÀÌ´õµéÀ» '¸µÅ©(Link)' ¡Ú
-	// VSÀÇ 'out'°ú FSÀÇ 'in'À» ¿¬°áÇÏ°í, ÃÖÁ¾ GPU ½ÇÇà ÄÚµå¸¦ »ı¼ºÇÕ´Ï´Ù.
+	// Link the Shader Program
 	glLinkProgram(shaderProgram);
-	// (¸¶Âù°¡Áö·Î glGetProgramiv·Î ¸µÅ© ¼º°ø ¿©ºÎ È®ÀÎ ÇÊ¿ä)
 
-	// 7. ¿øº» ¼ÎÀÌ´õ °´Ã¼µéÀº 'ÇÁ·Î±×·¥'¿¡ ¹­¿´À¸¹Ç·Î ´õ ÀÌ»ó ÇÊ¿ä ¾ø½À´Ï´Ù.
-	// µå¶óÀÌ¹ö ¸Ş¸ğ¸®¿¡¼­ ÇØÁ¦ÇÕ´Ï´Ù.
+	// Delete Shaders as they're linked into our program now and no longer necessary
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
-	// 1. ¿øÀÚÀç (CPU RAM¿¡ Á¤ÀÇ)
-	// »ï°¢Çü Á¤Á¡ 3°³ (x, y, z ÁÂÇ¥)
 	float vertices[] = {
-		-0.5f, -0.5f, 0.0f, // Á¤Á¡ 1 (¿ŞÂÊ ¾Æ·¡)
-		 0.5f, -0.5f, 0.0f, // Á¤Á¡ 2 (¿À¸¥ÂÊ ¾Æ·¡)
-		 0.0f,  0.5f, 0.0f  // Á¤Á¡ 3 (À§ÂÊ Áß¾Ó)
+		-0.5f, -0.5f, 0.0f, 
+		 0.5f, -0.5f, 0.0f, 
+		 0.0f,  0.5f, 0.0f  
 	};
 
-	// 2. VBO¿Í VAO¸¦ À§ÇÑ ÇÚµé(ID) »ı¼º
 	unsigned int VBO, VAO;
 	glGenVertexArrays(1, &VAO);
 	glGenBuffers(1, &VBO);
 
-	// 3. ¡Ú¡Ú¡Ú 'Á¶¸³ ¼³¸í¼­(VAO)' ±â·Ï ½ÃÀÛ ¡Ú¡Ú¡Ú
-	// "Áö±İºÎÅÍÀÇ ¸ğµç ¹öÆÛ/¼Ó¼º ¼³Á¤Àº ÀÌ VAO¿¡ ÀúÀåÇÏ¶ó"
 	glBindVertexArray(VAO);
 
-	// 4. '¿øÀÚÀç(VBO)'¸¦ VRAM¿¡ ¾÷·Îµå
-
-	// (1) VBO¸¦ 'ÇöÀç ÀÛ¾÷ ´ë»ó'À¸·Î ¹ÙÀÎµù (»óÅÂ ¸Ó½Å)
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-
-	// (2) ¡Ú CPU -> GPU·Î µ¥ÀÌÅÍ Àü¼Û (°¡Àå ºñ½Ñ ÃÊ±âÈ­ ´Ü°è) ¡Ú
-	// CPU ¸Ş¸ğ¸®(vertices)ÀÇ ³»¿ëÀ» GPU VRAM(VBO)À¸·Î º¹»çÇÕ´Ï´Ù.
-	// GL_STATIC_DRAW: ÀÌ µ¥ÀÌÅÍ´Â '°ÅÀÇ º¯ÇÏÁö ¾ÊÀ½'À» µå¶óÀÌ¹ö¿¡°Ô ¾Ë¸®´Â ÈùÆ®.
-	// µå¶óÀÌ¹ö´Â ÀÌ ÈùÆ®¸¦ º¸°í GPU°¡ °¡Àå ÀĞ±â ºü¸¥ VRAM ¿µ¿ª¿¡ µ¥ÀÌÅÍ¸¦ ¹èÄ¡ÇÕ´Ï´Ù.
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-	// 5. 'Á¶¸³ ¼³¸í¼­'¿¡ ³»¿ë ±âÀÔ (VAO¿¡ ÀúÀåµÊ)
-	// "¼ÎÀÌ´õÀÇ 'location = 0'¹ø ÀÔ·Â ½½·Ô¿¡ VBOÀÇ µ¥ÀÌÅÍ¸¦ ÀÌ·¸°Ô ¿¬°áÇÏ¶ó"
-
-	// (1) ¾î¶² µ¥ÀÌÅÍ¸¦(VBO): ÇöÀç ¹ÙÀÎµùµÈ GL_ARRAY_BUFFER (Áï, VBO)
-	// (2) ¾î¶»°Ô ÇØ¼®ÇÒÁö:
-	//    - 0: 'location = 0' ½½·Ô¿¡
-	//    - 3: 3°³¾¿ (vec3)
-	//    - GL_FLOAT: float Å¸ÀÔÀ¸·Î
-	//    - GL_FALSE: Á¤±ÔÈ­ÇÏÁö ¾ÊÀ½
-	//    - 3 * sizeof(float): ÇÑ Á¤Á¡ÀÇ ÃÑ Å©±â (Stride)
-	//    - (void*)0: ÀÌ µ¥ÀÌÅÍÀÇ ½ÃÀÛ ¿ÀÇÁ¼Â (Offset)
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
-	// "ÀÌ '0¹ø ½½·Ô'À» È°¼ºÈ­ÇÏ¶ó"
 	glEnableVertexAttribArray(0);
 
-	// 6. ¡Ú¡Ú¡Ú 'Á¶¸³ ¼³¸í¼­(VAO)' ±â·Ï ¿Ï·á ¡Ú¡Ú¡Ú
-	// ´Ù¸¥ ÄÚµå¿¡ ÀÇÇØ VAO ¼³Á¤ÀÌ '¿À¿°'µÇ´Â °ÍÀ» ¸·±â À§ÇØ ¹ÙÀÎµùÀ» ÇØÁ¦ÇÕ´Ï´Ù.
 	glBindVertexArray(0);
 
-	// (VBO ¹ÙÀÎµùµµ ÇØÁ¦ÇØµµ µÇÁö¸¸, VAO°¡ 0¹ø ½½·ÔÀÇ VBO ¹ÙÀÎµùÀ» ±â¾ïÇÏ°í ÀÖ½À´Ï´Ù)
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	while (!glfwWindowShouldClose(window))
 	{
 		// Input
 		// glfwGetKey...
+		// Get event(Keyboard, Mouse input, window closing etc.) from OS
+		glfwPollEvents();
 
-		// Render
-		glClearColor(0.2f, 0.3f, 0.3f, 1.f);
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+
+		ImGui::Begin("Parameter Controller");
+		{
+			ImGui::SliderFloat("My Param", &myParam, 0.0f, 1.0f);
+			ImGui::ColorEdit3("Color", color);
+
+			ImGui::Text("My Param: %.3f", myParam);
+			ImGui::Text("FPS: %.1f", io.Framerate);
+		}
+
+		ImGui::End();
+		ImGui::Render();
+
+		// Render Color
+		glClearColor(color[0], color[1], color[2], 1.f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
-		// --- ¡Ú¡Ú¡Ú È¿À²ÀûÀÎ ±×¸®±â Ä¿¸Çµå (´Ü 3ÁÙ) ¡Ú¡Ú¡Ú ---
-
-		// (1) »ç¿ëÇÒ '¼³°èµµ(Program)'¸¦ »óÅÂ ¸Ó½Å¿¡ ¼³Á¤
-		// µå¶óÀÌ¹ö´Â 'shaderProgram' ID¿¡ ÇØ´çÇÏ´Â GPU ±â°è¾î ÄÚµå¸¦ 
-		// ´ÙÀ½ ±×¸®±â ¸í·É¿¡¼­ »ç¿ëÇÏµµ·Ï ÆÄÀÌÇÁ¶óÀÎ¿¡ ¿¬°áÇÕ´Ï´Ù. (Æ÷ÀÎÅÍ ½º¿Ò)
 		glUseProgram(shaderProgram);
-
-		// (2) »ç¿ëÇÒ 'Á¶¸³ ¼³¸í¼­(VAO)'¸¦ »óÅÂ ¸Ó½Å¿¡ ¼³Á¤
-		// ¡Ú °¡Àå Å« ¿À¹öÇìµå Àı°¨ ¡Ú
-		// ÀÌ ÇÑ ÁÙÀÌ, ¿ì¸®°¡ ÃÊ±âÈ­ ¶§ ¼³Á¤ÇÑ ¸ğµç °Í
-		// (glBindBuffer(VBO), glVertexAttribPointer, glEnableVertexAttribArray)
-		// À» 'ÇÑ ¹ø¿¡' µå¶óÀÌ¹ö¿¡°Ô »ó±â½ÃÅµ´Ï´Ù.
-		// VAO°¡ ¾ø¾ú´Ù¸é ÀÌ ¸ğµç ÇÔ¼ö¸¦ ¿©±â¼­ ¸Å¹ø ´Ù½Ã È£ÃâÇØ¾ß Çß½À´Ï´Ù.
 		glBindVertexArray(VAO);
-
-		// (3) ¡Ú 'Á¡È­ ½ºÀ§Ä¡' (Draw Call) ¡Ú
-		// "ÇöÀç ¹ÙÀÎµùµÈ '¼³°èµµ(Program)'¿Í 'Á¶¸³ ¼³¸í¼­(VAO)'¸¦ »ç¿ëÇØ¼­,
-		//  0¹ø Á¤Á¡ºÎÅÍ ÃÑ 3°³ÀÇ Á¤Á¡À» ±×·Á¶ó!"
-		//
-		// ÀÌ ¸í·ÉÀº CPU¿¡¼­ µå¶óÀÌ¹ö·Î, µå¶óÀÌ¹ö¿¡¼­ Ä¿³ÎÀ» ÅëÇØ
-		// GPUÀÇ Ä¿¸Çµå Å¥(Command Queue)·Î Àü¼ÛµË´Ï´Ù.
-		// ÀÌ Ä¿¸Çµå ÀÚÃ¼´Â ¼ö½Ê ¹ÙÀÌÆ®(Byte)¿¡ ºÒ°úÇÑ 'ÀÛ¾÷ Áö½Ã¼­'ÀÔ´Ï´Ù.
-		// ½ÇÁ¦ µ¥ÀÌÅÍ(VBO)´Â ÀÌ¹Ì VRAM¿¡ ÀÖ½À´Ï´Ù.
 		glDrawArrays(GL_TRIANGLES, 0, 3);
+
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		
+		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+		{
+			// 'ìƒíƒœ ë¨¸ì‹ 'ì˜ í•µì‹¬:
+			// ImGuiê°€ 'ë‹¤ë¥¸ ì°½'ì„ ê·¸ë¦¬ë©´ì„œ OpenGLì˜ 'í˜„ì¬ ì»¨í…ìŠ¤íŠ¸'ë¥¼
+			// ì˜¤ì—¼ì‹œí‚¬ ìˆ˜ ìˆìœ¼ë¯€ë¡œ, 'ë©”ì¸ ìœˆë„ìš°'ì˜ ì»¨í…ìŠ¤íŠ¸ë¥¼ ë°±ì—…í•©ë‹ˆë‹¤.
+			GLFWwindow* backup_current_context = glfwGetCurrentContext();
+
+			// ImGuiì—ê²Œ "ë©”ì¸ ì°½ ë§ê³ , 'ë‹¤ë¥¸ ëª¨ë“ ' í”Œë«í¼ ì°½ë“¤ì„ 
+			// ì—…ë°ì´íŠ¸í•˜ê³  ê·¸ë ¤ë¼"ê³  ëª…ì‹œì ìœ¼ë¡œ ëª…ë ¹í•©ë‹ˆë‹¤.
+			ImGui::UpdatePlatformWindows();
+			ImGui::RenderPlatformWindowsDefault();
+
+			// 'í˜„ì¬ ì»¨í…ìŠ¤íŠ¸'ë¥¼ ë©”ì¸ ìœˆë„ìš°ì˜ ê²ƒìœ¼ë¡œ 'ë³µì›'í•©ë‹ˆë‹¤.
+			// ì´ë˜ì•¼ë§Œ 'glfwSwapBuffers'ê°€ ì˜¬ë°”ë¥¸ ì°½(ë©”ì¸ ìœˆë„ìš°)ì—ì„œ
+			// ë™ì‘í•˜ëŠ” ê²ƒì„ 'ë³´ì¥'í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
+			glfwMakeContextCurrent(backup_current_context);
+		}
 
 		// Buffer Swap
 		glfwSwapBuffers(window);
 
-		// Get event(Keyboard, Mouse input, window closing etc.) from OS
-		glfwPollEvents();
+		
 	}
 
 	glfwTerminate();
