@@ -113,7 +113,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -132,7 +132,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -143,8 +143,27 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\Utils\Utils.h" />
     <ClCompile Include="src\Core\glad.c" />
     <ClCompile Include="src\Core\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\Shaders\DCT\dct_pass1_rows.comp" />
+    <None Include="src\Shaders\DCT\dct_pass2_cols_embed.comp" />
+    <None Include="src\Shaders\DCT\idct_pass1_cols.comp" />
+    <None Include="src\Shaders\DCT\idct_pass2_rows.comp" />
+    <None Include="src\Shaders\DWT\dwt_pass1_rows.comp" />
+    <None Include="src\Shaders\DWT\dwt_pass2_cols_embed.comp" />
+    <None Include="src\Shaders\DWT\idwt_pass1_cols.comp" />
+    <None Include="src\Shaders\DWT\idwt_pass2_rows.comp" />
+    <None Include="src\Shaders\SVD\svd_01_rgb_to_y.comp" />
+    <None Include="src\Shaders\SVD\svd_02_store_cbcr.comp" />
+    <None Include="src\Shaders\SVD\svd_03_compute_ata.comp" />
+    <None Include="src\Shaders\SVD\svd_04_eigendecomposition.comp" />
+    <None Include="src\Shaders\SVD\svd_05_compute_u.comp" />
+    <None Include="src\Shaders\SVD\svd_06_modify_sigma.comp" />
+    <None Include="src\Shaders\SVD\svd_07_reconstruct_y.comp" />
+    <None Include="src\Shaders\SVD\svd_08_combine_ycbcr.comp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

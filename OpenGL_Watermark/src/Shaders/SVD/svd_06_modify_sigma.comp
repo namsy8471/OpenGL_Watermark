@@ -1,0 +1,71 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define BLOCK_SIZE 8
+
+// --- 유니폼 (C++에서 설정) ---
+uniform uint Width;
+uniform uint Height;
+
+// [압축용]
+uniform float ModificationValue; // (C++의 g_CompressionThreshold가 여기로 옴)
+
+// [워터마킹용 (신규 추가)]
+uniform float EmbeddingStrength;
+uniform uint CoefficientsToUse;
+uniform uint BitLength;
+uniform uint Embed;
+
+// --- 입출력 텍스처 ---
+layout(binding = 0, r32f) uniform image2D SingularValues;
+
+// --- 버퍼 (신규 추가) ---
+layout(std430, binding = 2) buffer BitstreamBuffer { uint Bitstream[]; } bitstream_buf;
+layout(std430, binding = 3) buffer PatternBuffer { float PatternBuffer[]; } pattern_buf;
+
+void main()
+{
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+
+    uint blockX_base = groupID.x * BLOCK_SIZE;
+    uint blockY_base = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x;
+    uint threadY = groupThreadID.y;
+    
+    uint sigma_idx = threadX; // 0..7
+    if (threadY == 0 && sigma_idx < BLOCK_SIZE)
+    {
+        ivec2 coord = ivec2(blockX_base + sigma_idx, blockY_base);
+        if (coord.x < Width && coord.y < Height)
+        {
+            // 1. 원본 특이값 로드
+            float sigma = imageLoad(SingularValues, coord).r;
+
+            // 2. ★ (1순위) 워터마킹 적용 ★
+            if (Embed == 1 && sigma_idx < CoefficientsToUse)
+            {
+                uint numBlocksX = (Width + 7) / 8;
+                uint blockLinearIndex = groupID.y * numBlocksX + groupID.x;
+                if (blockLinearIndex < BitLength)
+                {
+                    uint bit = bitstream_buf.Bitstream[blockLinearIndex];
+                    float bit_sign = (bit == 1) ? 1.0f : -1.0f;
+                    uint pattern_idx = blockLinearIndex * CoefficientsToUse + sigma_idx;
+                    
+                    float pattern_value = pattern_buf.PatternBuffer[pattern_idx];
+                    float modification = EmbeddingStrength * pattern_value * bit_sign;
+
+                    // (예: 곱셈 기반 워터마킹)
+                    sigma = sigma * (1.0f + modification);
+                }
+            }
+
+            // 3. ★ (2순위) 압축 적용 ★
+            sigma = (sigma >= ModificationValue) ? sigma : 0.0f;
+
+            // 4. 최종 수정된 특이값 쓰기
+            imageStore(SingularValues, coord, vec4(sigma, 0, 0, 0));
+        }
+    }
+}

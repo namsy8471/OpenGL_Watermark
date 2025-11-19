@@ -1,0 +1,93 @@
+#version 430 core // OpenGL 4.3 이상 필요
+
+// HLSL의 [numthreads(8, 8, 1)] -> GLSL의 layout
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// --- 상수 ---
+#define BLOCK_SIZE 8
+#define BLOCK_SIZE_FLOAT 8.0f
+#define PI 3.14159265359f
+#define SQRT1_N (1.0f / sqrt(BLOCK_SIZE_FLOAT))
+#define SQRT2_N (sqrt(2.0f / BLOCK_SIZE_FLOAT))
+
+// --- 입출력 텍스처 (HLSL -> GLSL 바인딩) ---
+// HLSL: Texture2D<float4> Source
+layout(binding = 0, rgba32f) uniform readonly image2D Source;
+// HLSL: RWTexture2D<float3> IntermediateBufferRGB
+layout(binding = 1, rgba32f) uniform writeonly image2D IntermediateBufferRGB;
+
+// --- 전역 변수 (C++에서 uniform으로 전달) ---
+uniform uint Width;
+uniform uint Height;
+
+// --- 공유 메모리 (HLSL: groupshared -> GLSL: shared) ---
+shared vec3 SharedBlockRGB_Pass1[BLOCK_SIZE][BLOCK_SIZE]; // float3 -> vec3
+
+// --- 1D DCT 함수 (HLSL과 거의 동일, 타입만 변경) ---
+// (out 파라미터가 GLSL에서는 inout으로 선언될 수 있음, 
+//  하지만 명확성을 위해 별도 함수로 분리하거나 반환값 사용을 권장)
+// 여기서는 HLSL의 'out'을 모방하기 위해 로컬 변수에 직접 쓰는 방식을 사용
+float Do_DCT_1D_Single(float inputData[BLOCK_SIZE], uint k_idx)
+{
+    float k = float(k_idx);
+    float Ck = (k == 0.0f) ? SQRT1_N : SQRT2_N;
+    float sum = 0.0f;
+    for (uint n = 0; n < BLOCK_SIZE; ++n)
+    {
+        float n_float = float(n);
+        float angle_term = PI * (2.0f * n_float + 1.0f) * k / (2.0f * BLOCK_SIZE_FLOAT);
+        sum += inputData[n] * cos(angle_term);
+    }
+    return Ck * sum;
+}
+
+// --- 메인 커널 (HLSL의 #pragma kernel -> GLSL의 main()) ---
+void main()
+{
+    // HLSL의 SV_* 변수 -> GLSL의 gl_* 내장 변수
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    
+    uint blockOriginX = groupID.x * BLOCK_SIZE;
+    uint blockOriginY = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x; // k 인덱스 / 픽셀 x 인덱스
+    uint threadY = groupThreadID.y; // 행 y 인덱스
+
+    // 1. 전역 메모리 -> 공유 메모리 로드
+    uint loadX = blockOriginX + threadX;
+    uint loadY = blockOriginY + threadY;
+    vec3 pixelRGB = vec3(0, 0, 0);
+    if (loadX < Width && loadY < Height)
+    {
+        // HLSL: Source.Load(int3(...)) -> GLSL: imageLoad(Source, ivec2(...))
+        pixelRGB = imageLoad(Source, ivec2(loadX, loadY)).rgb;
+    }
+    SharedBlockRGB_Pass1[threadY][threadX] = pixelRGB;
+
+    // 2. 동기화 (HLSL: GroupMemoryBarrier... -> GLSL: barrier())
+    barrier(); // 그룹 내 모든 스레드 대기
+    
+    // 3. 공유 메모리 -> 로컬 배열 로드 및 1D DCT
+    float rowDataR[BLOCK_SIZE], rowDataG[BLOCK_SIZE], rowDataB[BLOCK_SIZE];
+    for (uint i = 0; i < BLOCK_SIZE; ++i)
+    {
+        rowDataR[i] = SharedBlockRGB_Pass1[threadY][i].r;
+        rowDataG[i] = SharedBlockRGB_Pass1[threadY][i].g;
+        rowDataB[i] = SharedBlockRGB_Pass1[threadY][i].b;
+    }
+
+    float dctResultR = Do_DCT_1D_Single(rowDataR, threadX);
+    float dctResultG = Do_DCT_1D_Single(rowDataG, threadX);
+    float dctResultB = Do_DCT_1D_Single(rowDataB, threadX);
+
+    // 4. 결과를 IntermediateBufferRGB에 저장
+    uint writeX = blockOriginX + threadX;
+    uint writeY = blockOriginY + threadY;
+    if (writeX < Width && writeY < Height)
+    {
+        // HLSL: IntermediateBufferRGB[uint2(...)] = ... -> GLSL: imageStore(...)
+        imageStore(IntermediateBufferRGB,
+                   ivec2(writeX, writeY), 
+                   vec4(dctResultR, dctResultG, dctResultB, 0.0));
+    }
+}

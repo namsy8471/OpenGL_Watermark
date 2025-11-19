@@ -1,0 +1,83 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// --- 상수 ---
+#define BLOCK_SIZE 8
+#define BLOCK_SIZE_FLOAT 8.0f
+#define PI 3.14159265359f
+#define SQRT1_N (1.0f / sqrt(BLOCK_SIZE_FLOAT))
+#define SQRT2_N (sqrt(2.0f / BLOCK_SIZE_FLOAT))
+
+// --- 입출력 ---
+// (Pass 2의 출력이 Pass 3의 입력이 됨)
+layout(binding = 0, rgba32f) uniform readonly image2D DCTOutputRGB;
+// (Intermediate 버퍼를 '재사용'함)
+layout(binding = 1, rgba32f) uniform writeonly image2D IntermediateBufferRGB;
+
+// --- 유니폼 ---
+uniform uint Width;
+uniform uint Height;
+
+// --- 공유 메모리 ---
+shared vec3 SharedBlockRGB_Pass3[BLOCK_SIZE][BLOCK_SIZE];
+
+// --- 1D IDCT 함수 (HLSL과 동일, 타입만 변경) ---
+float Do_IDCT_1D_Single(float inputData[BLOCK_SIZE], uint n_idx)
+{
+    float n = float(n_idx);
+    float sum = 0.0f;
+    for (uint k = 0; k < BLOCK_SIZE; ++k)
+    {
+        float K_float = float(k);
+        float Ck = (K_float == 0.0f) ? SQRT1_N : SQRT2_N;
+        float angle_term = PI * (2.0f * n + 1.0f) * K_float / (2.0f * BLOCK_SIZE_FLOAT);
+        sum += Ck * inputData[k] * cos(angle_term);
+    }
+    return sum;
+}
+
+// --- 메인 커널 ---
+void main()
+{
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    
+    uint blockOriginX = groupID.x * BLOCK_SIZE;
+    uint blockOriginY = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x;
+    uint threadY = groupThreadID.y;
+
+    // 1. 전역 메모리(DCT 계수) -> 공유 메모리 로드
+    uint loadX = blockOriginX + threadX;
+    uint loadY = blockOriginY + threadY;
+    vec3 loadedCoeffRGB = vec3(0, 0, 0);
+    if (loadX < Width && loadY < Height)
+    {
+        loadedCoeffRGB = imageLoad(DCTOutputRGB, ivec2(loadX, loadY)).rgb;
+    }
+    SharedBlockRGB_Pass3[threadY][threadX] = loadedCoeffRGB;
+
+    // 2. 동기화
+    barrier();
+
+    // 3. 공유 메모리 -> 로컬 배열 로드 (열 기준) 및 1D IDCT
+    float colDataR[BLOCK_SIZE], colDataG[BLOCK_SIZE], colDataB[BLOCK_SIZE];
+    for (uint i = 0; i < BLOCK_SIZE; ++i)
+    {
+        colDataR[i] = SharedBlockRGB_Pass3[i][threadX].r;
+        colDataG[i] = SharedBlockRGB_Pass3[i][threadX].g;
+        colDataB[i] = SharedBlockRGB_Pass3[i][threadX].b;
+    }
+    
+    float idctR = Do_IDCT_1D_Single(colDataR, threadY);
+    float idctG = Do_IDCT_1D_Single(colDataG, threadY);
+    float idctB = Do_IDCT_1D_Single(colDataB, threadY);
+
+    // 4. 결과 저장 (Intermediate 버퍼에)
+    uint writeX = blockOriginX + threadX;
+    uint writeY = blockOriginY + threadY;
+    if (writeX < Width && writeY < Height)
+    {
+        imageStore(IntermediateBufferRGB, ivec2(writeX, writeY), vec4(idctR, idctG, idctB, 0.0));
+    }
+}

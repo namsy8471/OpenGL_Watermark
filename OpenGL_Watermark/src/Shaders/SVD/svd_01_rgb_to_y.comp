@@ -1,0 +1,28 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// HLSL: float3 RGBToYCbCr(float3 rgb)
+vec3 RGBToYCbCr(vec3 rgb)
+{
+    float y = 0.299f * rgb.r + 0.587f * rgb.g + 0.114f * rgb.b;
+    float cb = -0.169f * rgb.r - 0.331f * rgb.g + 0.500f * rgb.b;
+    float cr = 0.500f * rgb.r - 0.419f * rgb.g - 0.081f * rgb.b;
+    return vec3(y, cb, cr);
+}
+
+uniform uint Width;
+uniform uint Height;
+
+layout(binding = 0, rgba32f) uniform readonly image2D SourceReader;
+layout(binding = 1, r32f) uniform writeonly image2D SourceYWriter; // Y´Â 1Ã¤³Î(R)
+
+void main()
+{
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (id.x >= Width || id.y >= Height)
+        return;
+        
+    vec3 rgb = imageLoad(SourceReader, id).rgb;
+    float y = RGBToYCbCr(rgb).x;
+    imageStore(SourceYWriter, id, vec4(y, 0.0, 0.0, 0.0));
+}

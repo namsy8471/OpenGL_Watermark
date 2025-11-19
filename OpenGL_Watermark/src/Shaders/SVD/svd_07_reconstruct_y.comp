@@ -1,0 +1,63 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define BLOCK_SIZE 8
+uniform uint Width;
+uniform uint Height;
+
+layout(binding = 0, r32f) uniform readonly image2D MatrixUReader;
+layout(binding = 1, r32f) uniform readonly image2D MatrixVReader;
+layout(binding = 2, r32f) uniform readonly image2D SingularValuesReader;
+layout(binding = 3, r32f) uniform writeonly image2D ReconstructedYWriter;
+
+shared float localU[BLOCK_SIZE][BLOCK_SIZE];
+shared float localV[BLOCK_SIZE][BLOCK_SIZE];
+shared float localSigma[BLOCK_SIZE];
+
+void main()
+{
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    
+    uint blockX = groupID.x * BLOCK_SIZE;
+    uint blockY = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x; // 최종 픽셀 x (j)
+    uint threadY = groupThreadID.y; // 최종 픽셀 y (i)
+    uint loadX = blockX + threadX;
+    uint loadY = blockY + threadY;
+
+    // 1. U, V, Sigma 로드
+    if (loadX < Width && loadY < Height)
+    {
+        localU[threadY][threadX] = imageLoad(MatrixUReader, ivec2(loadX, loadY)).r;
+        localV[threadY][threadX] = imageLoad(MatrixVReader, ivec2(loadX, loadY)).r;
+    }
+    else
+    {
+        localU[threadY][threadX] = 0.0f; // 패딩은 0
+        localV[threadY][threadX] = 0.0f;
+    }
+    if (threadY == 0 && threadX < BLOCK_SIZE)
+    {
+        ivec2 sigmaCoord = ivec2(blockX + threadX, blockY);
+        if (sigmaCoord.x < Width && sigmaCoord.y < Height)
+        {
+            localSigma[threadX] = imageLoad(SingularValuesReader, sigmaCoord).r;
+        }
+        else { localSigma[threadX] = 0.0f; }
+    }
+    barrier();
+
+    // 2. Y_recon[i,j] = sum_k ( (U[i,k] * Sigma[k]) * V[j,k] )
+    float reconY = 0.0f;
+    for (uint k = 0; k < BLOCK_SIZE; ++k)
+    {
+        reconY += (localU[threadY][k] * localSigma[k]) * localV[threadX][k];
+    }
+    
+    // 3. 재구성 Y 쓰기
+    if (loadX < Width && loadY < Height)
+    {
+        imageStore(ReconstructedYWriter, ivec2(loadX, loadY), vec4(reconY, 0, 0, 0));
+    }
+}

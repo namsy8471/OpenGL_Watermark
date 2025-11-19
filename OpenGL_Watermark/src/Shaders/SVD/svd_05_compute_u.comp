@@ -1,0 +1,73 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define BLOCK_SIZE 8
+uniform uint Width;
+uniform uint Height;
+uniform float SigmaThreshold; // 0 나누기 방지
+
+layout(binding = 0, r32f) uniform readonly image2D SourceYReader_U;
+layout(binding = 1, r32f) uniform readonly image2D MatrixVReader_U;
+layout(binding = 2, r32f) uniform readonly image2D SingularValuesReader_U;
+layout(binding = 3, r32f) uniform writeonly image2D MatrixUWriter;
+
+shared float SharedA[BLOCK_SIZE][BLOCK_SIZE];
+shared float SharedV[BLOCK_SIZE][BLOCK_SIZE];
+shared float SharedSigma[BLOCK_SIZE];
+
+void main()
+{
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    
+    uint blockX = groupID.x * BLOCK_SIZE;
+    uint blockY = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x; // U의 열 j
+    uint threadY = groupThreadID.y; // U의 행 i
+    uint loadX = blockX + threadX;
+    uint loadY = blockY + threadY;
+
+    // 1. A, V, Sigma 로드
+    if (loadX < Width && loadY < Height)
+    {
+        SharedA[threadY][threadX] = imageLoad(SourceYReader_U, ivec2(loadX, loadY)).r;
+        SharedV[threadY][threadX] = imageLoad(MatrixVReader_U, ivec2(loadX, loadY)).r;
+    }
+    else
+    {
+        SharedA[threadY][threadX] = 0.0f;
+        SharedV[threadY][threadX] = (threadX == threadY) ? 1.0f : 0.0f;
+    }
+    if (threadY == 0 && threadX < BLOCK_SIZE)
+    {
+        uint readX_sigma = blockX + threadX;
+        uint readY_sigma = blockY;
+        if (readX_sigma < Width && readY_sigma < Height)
+        {
+            SharedSigma[threadX] = imageLoad(SingularValuesReader_U, ivec2(readX_sigma, readY_sigma)).r;
+        }
+        else { SharedSigma[threadX] = 0.0f; }
+    }
+    barrier();
+
+    // 2. U[i, j] = ( sum_k A[i, k] * V[k, j] ) / sigma_j
+    float sigma_j = SharedSigma[threadX];
+    float sum_Avj_i = 0.0f;
+    for (uint k = 0; k < BLOCK_SIZE; ++k)
+    {
+        sum_Avj_i += SharedA[threadY][k] * SharedV[k][threadX];
+    }
+
+    float u_ij = 0.0f;
+    if (sigma_j > SigmaThreshold)
+    {
+        u_ij = sum_Avj_i / sigma_j;
+    }
+    // (결과를 바로 전역 메모리에 씀)
+    
+    // 3. U 행렬 쓰기
+    if (loadX < Width && loadY < Height)
+    {
+        imageStore(MatrixUWriter, ivec2(loadX, loadY), vec4(u_ij, 0, 0, 0));
+    }
+}

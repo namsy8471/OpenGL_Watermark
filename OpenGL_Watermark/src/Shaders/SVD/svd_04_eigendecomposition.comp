@@ -1,0 +1,128 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define BLOCK_SIZE 8
+#define EPSILON 1.0e-7f
+
+uniform uint Width;
+uniform uint Height;
+uniform uint JacobiIterations;
+
+layout(binding = 0, r32f) uniform readonly image2D AtAReader;
+layout(binding = 1, r32f) uniform writeonly image2D MatrixVWriter;
+layout(binding = 2, r32f) uniform writeonly image2D SingularValuesWriter;
+
+shared float SharedAtA[BLOCK_SIZE][BLOCK_SIZE];
+shared float SharedV[BLOCK_SIZE][BLOCK_SIZE];
+
+void main()
+{
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    
+    uint blockX = groupID.x * BLOCK_SIZE;
+    uint blockY = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x; // 'j' (열) 인덱스
+    uint threadY = groupThreadID.y; // 'i' (행) 인덱스
+    uint loadX = blockX + threadX;
+    uint loadY = blockY + threadY;
+
+    // 1. AtA (M) 로드
+    if (loadX < Width && loadY < Height)
+    {
+        SharedAtA[threadY][threadX] = imageLoad(AtAReader, ivec2(loadX, loadY)).r;
+    }
+    else
+    {
+        SharedAtA[threadY][threadX] = (threadX == threadY) ? 1.0f : 0.0f;
+    }
+
+    // 2. V를 항등 행렬로 초기화
+    SharedV[threadY][threadX] = (threadX == threadY) ? 1.0f : 0.0f;
+    barrier();
+
+    // 3. Jacobi 반복
+    for (int iter = 0; iter < JacobiIterations; ++iter)
+    {
+        for (uint p = 0; p < BLOCK_SIZE - 1; ++p)
+        {
+            for (uint q = p + 1; q < BLOCK_SIZE; ++q)
+            {
+                // (모든 스레드가 c, s를 중복 계산. 괜찮음.)
+                float apq = SharedAtA[p][q];
+                float c, s;
+
+                if (abs(apq) < EPSILON)
+                {
+                    c = 1.0; s = 0.0;
+                }
+                else
+                {
+                    float app = SharedAtA[p][p];
+                    float aqq = SharedAtA[q][q];
+                    float tau = (aqq - app) / (2.0f * apq);
+                    float t = sign(tau) / (abs(tau) + sqrt(1.0f + tau * tau));
+                    c = 1.0f / sqrt(1.0f + t * t);
+                    s = t * c;
+                }
+
+                // --- ★★★ '경쟁 없는' 올바른 병렬 업데이트 ★★★ ---
+                
+                // [ 1. M_temp = M * R (열 p, q 업데이트) ]
+                // 각 스레드(i=threadY)는 '자신의 행'만 담당. (경쟁 없음)
+                float mp = SharedAtA[threadY][p];
+                float mq = SharedAtA[threadY][q];
+                float temp_p = c * mp - s * mq;
+                float temp_q = s * mp + c * mq;
+                barrier(); // 모든 스레드가 '읽기'를 마칠 때까지 대기
+
+                SharedAtA[threadY][p] = temp_p;
+                SharedAtA[threadY][q] = temp_q;
+                barrier(); // 모든 스레드가 '열 쓰기'를 마칠 때까지 대기
+
+                // [ 2. M_new = R^T * M_temp (행 p, q 업데이트) ]
+                // 각 스레드(j=threadX)는 '자신의 열'만 담당. (경쟁 없음)
+                mp = SharedAtA[p][threadX];
+                mq = SharedAtA[q][threadX];
+                temp_p = c * mp - s * mq;
+                temp_q = s * mp + c * mq;
+                barrier(); // 모든 스레드가 '읽기'를 마칠 때까지 대기
+
+                SharedAtA[p][threadX] = temp_p;
+                SharedAtA[q][threadX] = temp_q;
+                barrier(); // 모든 스레드가 '행 쓰기'를 마칠 때까지 대기
+                
+                // [ 3. V_new = V * R (열 p, q 업데이트) ]
+                // 각 스레드(i=threadY)는 '자신의 행'만 담당. (경쟁 없음)
+                mp = SharedV[threadY][p];
+                mq = SharedV[threadY][q];
+                temp_p = c * mp - s * mq;
+                temp_q = s * mp + c * mq;
+                barrier(); // 모든 스레드가 '읽기'를 마칠 때까지 대기
+
+                SharedV[threadY][p] = temp_p;
+                SharedV[threadY][q] = temp_q;
+                barrier(); // 모든 스레드가 'V 쓰기'를 마칠 때까지 대기
+            }
+        }
+    }
+
+    // 4. Sigma (특이값) 계산 및 쓰기
+    if (threadX == 0) // 각 행의 0번 스레드만 (경쟁 없음)
+    {
+        uint sigma_idx = threadY;
+        float lambda = SharedAtA[sigma_idx][sigma_idx];
+        float sigma = sqrt(max(0.0f, lambda));
+        ivec2 sigmaCoord = ivec2(blockX + sigma_idx, blockY);
+        if (sigmaCoord.x < Width && sigmaCoord.y < Height)
+        {
+            imageStore(SingularValuesWriter, sigmaCoord, vec4(sigma, 0, 0, 0));
+        }
+    }
+
+    // 5. V 행렬 쓰기
+    if (loadX < Width && loadY < Height)
+    {
+        imageStore(MatrixVWriter, ivec2(loadX, loadY), vec4(SharedV[threadY][threadX], 0, 0, 0));
+    }
+}

@@ -1,0 +1,50 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define BLOCK_SIZE 8
+uniform uint Width;
+uniform uint Height;
+
+layout(binding = 0, r32f) uniform readonly image2D SourceYReader_AtA;
+layout(binding = 1, r32f) uniform writeonly image2D AtAWriter; // AtA도 1채널
+
+shared float SharedA[BLOCK_SIZE][BLOCK_SIZE]; // Y 블록
+
+void main()
+{
+    ivec3 groupID = ivec3(gl_WorkGroupID);
+    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    
+    uint blockX = groupID.x * BLOCK_SIZE;
+    uint blockY = groupID.y * BLOCK_SIZE;
+    uint threadX = groupThreadID.x; // 결과 AtA의 열 j
+    uint threadY = groupThreadID.y; // 결과 AtA의 행 i
+
+    // 1. Y 블록(A)을 공유 메모리에 로드
+    uint loadX = blockX + threadX;
+    uint loadY = blockY + threadY;
+    if (loadX < Width && loadY < Height)
+    {
+        SharedA[threadY][threadX] = imageLoad(SourceYReader_AtA, ivec2(loadX, loadY)).r;
+    }
+    else
+    {
+        SharedA[threadY][threadX] = 0.0f;
+    }
+    barrier();
+
+    // 2. AtA[i, j] = sum_k A[k, i] * A[k, j] (A^T * A)
+    float sum = 0.0f;
+    for (uint k = 0; k < BLOCK_SIZE; ++k)
+    {
+        sum += SharedA[k][threadY] * SharedA[k][threadX];
+    }
+    
+    // (결과를 바로 전역 메모리에 씀)
+    
+    // 3. AtA 결과를 전역 메모리에 쓰기
+    if (loadX < Width && loadY < Height)
+    {
+        imageStore(AtAWriter, ivec2(loadX, loadY), vec4(sum, 0.0, 0.0, 0.0));
+    }
+}
