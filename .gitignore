@@ -34,3 +34,6 @@
 # Build Folders
 .vs/
 Build/
+/OpenGL_Watermark/Result_DCT.png
+/OpenGL_Watermark/Result_DWT.png
+/OpenGL_Watermark/Result_SVD.png
