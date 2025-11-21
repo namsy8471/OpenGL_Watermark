@@ -1,0 +1,104 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_src;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_dst;
+
+// 워터마크 데이터 버퍼
+layout(std430, binding = 2) buffer BitStream { uint bits[]; };
+
+uniform uint Width, Height;
+uniform float Strength; // 강도 (예: 5.0)
+uniform uint Embed;     // 1: 삽입 모드, 0: 변환만 테스트
+uniform uint BitSize;   // 비트 배열 크기
+
+struct Mat4 { float m[4][4]; };
+
+// 행렬 곱셈 C = A * B
+void MatMul(in Mat4 A, in Mat4 B, out Mat4 C) {
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            C.m[r][c] = A.m[r][0] * B.m[0][c] + A.m[r][1] * B.m[1][c] +
+                        A.m[r][2] * B.m[2][c] + A.m[r][3] * B.m[3][c];
+        }
+    }
+}
+
+// 전치 행렬
+void Transpose(in Mat4 A, out Mat4 T) {
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) T.m[i][j] = A.m[j][i];
+}
+
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 1. RGB 로드 및 Y(Luminance) 추출
+    Mat4 Y_block;
+    vec3 originRGB[16]; // 컬러 복원을 위해 원본 저장
+
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_src, blkPos + ivec2(x, y)).rgb;
+            originRGB[y*4 + x] = p;
+            Y_block.m[y][x] = 0.299*p.r + 0.587*p.g + 0.114*p.b; 
+        }
+    }
+
+    // 2. DCT 변환 행렬 (T) 정의
+    Mat4 T;
+    float a = 0.5;
+    float b = 0.65328148;
+    float c = 0.27059805;
+
+    T.m[0][0]=a; T.m[0][1]=a;  T.m[0][2]=a;   T.m[0][3]=a;
+    T.m[1][0]=b; T.m[1][1]=c;  T.m[1][2]=-c;  T.m[1][3]=-b;
+    T.m[2][0]=a; T.m[2][1]=-a; T.m[2][2]=-a;  T.m[2][3]=a;
+    T.m[3][0]=c; T.m[3][1]=-b; T.m[3][2]=b;   T.m[3][3]=-c;
+
+    Mat4 T_trans;
+    Transpose(T, T_trans);
+
+    // 3. Forward DCT: Coeffs = T * Y * T^T
+    Mat4 Temp, Coeffs;
+    MatMul(T, Y_block, Temp);
+    MatMul(Temp, T_trans, Coeffs);
+
+    // 4. 워터마킹 삽입 (SVD 코드와 동일한 로직)
+    if (Embed == 1) {
+        // 현재 블록에 해당하는 비트 가져오기
+        uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+        float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
+
+        // DCT의 중간 주파수 대역 (1, 2) 위치에 삽입
+        // (0,0)은 DC라 건드리면 밝기가 변함. (1,2)나 (2,1)이 강건함.
+        float val = Coeffs.m[1][2];
+        
+        // SVD 공식 적용: val' = val * (1 + alpha * w)
+        Coeffs.m[1][2] = val * (1.0 + Strength * 0.01 * w);
+    }
+
+    // 5. Inverse DCT: Y_new = T^T * Coeffs * T
+    Mat4 Y_new;
+    MatMul(T_trans, Coeffs, Temp);
+    MatMul(Temp, T, Y_new);
+
+    // 6. 컬러 복원 및 저장
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            float oldY = Y_block.m[y][x];
+            float newY = Y_new.m[y][x];
+            vec3 rgb = originRGB[y*4 + x];
+
+            // 0으로 나누기 방지
+            if (oldY > 1e-5) {
+                rgb *= (newY / oldY); // 밝기 비율만큼 RGB 스케일링
+            } else {
+                // 검은색에 가까운 경우 그냥 밝기만 더해줌 (예외 처리)
+                rgb += (newY - oldY);
+            }
+            
+            imageStore(img_dst, blkPos + ivec2(x, y), vec4(rgb, 1.0));
+        }
+    }
+}

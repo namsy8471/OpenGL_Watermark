@@ -148,14 +148,22 @@
     <ClCompile Include="src\Core\main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="src\Shaders\DCT\dct_opt_4x4.comp" />
     <None Include="src\Shaders\DCT\dct_pass1_rows.comp" />
     <None Include="src\Shaders\DCT\dct_pass2_cols_embed.comp" />
     <None Include="src\Shaders\DCT\idct_pass1_cols.comp" />
     <None Include="src\Shaders\DCT\idct_pass2_rows.comp" />
+    <None Include="src\Shaders\DFT\debug_probe.comp" />
+    <None Include="src\Shaders\DFT\dft_postprocess_crop.comp" />
+    <None Include="src\Shaders\DFT\dft_preprocess_pad.comp" />
+    <None Include="src\Shaders\DFT\dft_process_embed.comp" />
+    <None Include="src\Shaders\DFT\dft_reorder.comp" />
+    <None Include="src\Shaders\DWT\dwt_opt_4x4.comp" />
     <None Include="src\Shaders\DWT\dwt_pass1_rows.comp" />
     <None Include="src\Shaders\DWT\dwt_pass2_cols_embed.comp" />
     <None Include="src\Shaders\DWT\idwt_pass1_cols.comp" />
     <None Include="src\Shaders\DWT\idwt_pass2_rows.comp" />
+    <None Include="src\Shaders\FFT\fft_radix2.comp" />
     <None Include="src\Shaders\SVD\svd_01_rgb_to_y.comp" />
     <None Include="src\Shaders\SVD\svd_02_store_cbcr.comp" />
     <None Include="src\Shaders\SVD\svd_03_compute_ata.comp" />
@@ -164,6 +172,8 @@
     <None Include="src\Shaders\SVD\svd_06_modify_sigma.comp" />
     <None Include="src\Shaders\SVD\svd_07_reconstruct_y.comp" />
     <None Include="src\Shaders\SVD\svd_08_combine_ycbcr.comp" />
+    <None Include="src\Shaders\SVD\svd_block_4x4.comp" />
+    <None Include="src\Shaders\SVD\svd_implict_4x4.comp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,0 +1,176 @@
+#version 430 core
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba32f, binding = 0) readonly uniform image2D img_src;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_dst;
+layout(std430, binding = 2) buffer BitStream { uint bits[]; };
+
+uniform uint Width, Height;
+uniform float Strength;
+uniform uint Embed;
+uniform uint BitSize;
+
+// 4x4 행렬 구조체 (레지스터 최적화)
+struct Mat4 { float m[4][4]; };
+
+// Identity Matrix 초기화
+void LoadIdentity(out Mat4 M) {
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) M.m[i][j] = (i==j)? 1.0 : 0.0;
+}
+
+// Symmetric Jacobi Rotation (Only updates V)
+// A_new = J^T * A * J
+void SymJacobiRotate(inout Mat4 A, inout Mat4 V, int p, int q) {
+    if (abs(A.m[p][q]) < 1e-6) return;
+
+    float d = (A.m[q][q] - A.m[p][p]) / (2.0 * A.m[p][q]);
+    float t = sign(d) / (abs(d) + sqrt(d*d + 1.0));
+    float c = 1.0 / sqrt(t*t + 1.0);
+    float s = c * t;
+
+    // Update A (Symmetric update) - 대칭성을 이용해 연산량 반으로 줄임
+    // 대각 성분 업데이트
+    float App = A.m[p][p];
+    float Aqq = A.m[q][q];
+    float Apq = A.m[p][q];
+    
+    A.m[p][p] = c*c*App - 2.0*s*c*Apq + s*s*Aqq;
+    A.m[q][q] = s*s*App + 2.0*s*c*Apq + c*c*Aqq;
+    A.m[p][q] = 0.0; // 의도적으로 0으로 만듦 (수렴)
+    A.m[q][p] = 0.0;
+
+    // 나머지 성분 업데이트 (행/열 p, q)
+    for (int i = 0; i < 4; i++) {
+        if (i != p && i != q) {
+            float Api = A.m[p][i]; // Aip와 같음
+            float Aqi = A.m[q][i]; // Aiq와 같음
+            
+            float new_Api = c*Api - s*Aqi;
+            float new_Aqi = s*Api + c*Aqi;
+            
+            A.m[p][i] = new_Api; A.m[i][p] = new_Api;
+            A.m[q][i] = new_Aqi; A.m[i][q] = new_Aqi;
+        }
+    }
+
+    // Update V (Accumulate rotations)
+    for (int i = 0; i < 4; i++) {
+        float Vip = V.m[i][p];
+        float Viq = V.m[i][q];
+        V.m[i][p] = c * Vip - s * Viq;
+        V.m[i][q] = s * Vip + c * Viq;
+    }
+}
+
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 1. Load Data & Compute A^T * A directly
+    // A를 메모리에 다 올리는 대신, 로드하면서 바로 AtA를 만듭니다.
+    // AtA[i][j] = dot(Col_i, Col_j)
+    
+    vec3 pixels[16]; // 레지스터 캐싱
+    float Y[16];     // Luminance
+
+    for(int i=0; i<4; i++) { // y
+        for(int j=0; j<4; j++) { // x
+            pixels[i*4+j] = imageLoad(img_src, blkPos + ivec2(j, i)).rgb;
+            vec3 p = pixels[i*4+j];
+            Y[i*4+j] = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+        }
+    }
+
+    Mat4 AtA;
+    // 4x4 block means Y[row*4 + col] -> Matrix A[row][col]
+    // But for AtA calculation: (AtA)_ij = sum_k (A_ki * A_kj)
+    // Here, A_ki is Y[k*4 + i]
+    
+    for(int i=0; i<4; i++) {
+        for(int j=i; j<4; j++) { // 대칭이므로 절반만 계산
+            float sum = 0.0;
+            for(int k=0; k<4; k++) {
+                sum += Y[k*4 + i] * Y[k*4 + j];
+            }
+            AtA.m[i][j] = sum;
+            AtA.m[j][i] = sum;
+        }
+    }
+
+    // 2. Diagonalize AtA using Jacobi -> Get V and Sigma^2
+    Mat4 V; 
+    LoadIdentity(V);
+
+    // 반복 횟수 4회로 단축 (대칭행렬은 수렴이 매우 빠름)
+    for(int iter=0; iter<4; iter++) {
+        SymJacobiRotate(AtA, V, 0, 1);
+        SymJacobiRotate(AtA, V, 0, 2);
+        SymJacobiRotate(AtA, V, 0, 3);
+        SymJacobiRotate(AtA, V, 1, 2);
+        SymJacobiRotate(AtA, V, 1, 3);
+        SymJacobiRotate(AtA, V, 2, 3);
+    }
+
+    // 3. Singular Values (Sigma)
+    float sigma[4];
+    for(int i=0; i<4; i++) sigma[i] = sqrt(max(AtA.m[i][i], 0.0));
+
+    // 4. Watermarking
+    float ratio[4] = {1.0, 1.0, 1.0, 1.0}; // Scale factors
+
+    if (Embed == 1) {
+        int maxIdx = 0;
+        float maxVal = sigma[0];
+        for(int i=1; i<4; i++) if(sigma[i] > maxVal) { maxVal = sigma[i]; maxIdx = i; }
+
+        uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+        float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
+        
+        float newSigma = maxVal * (1.0 + Strength * 0.01 * w);
+        
+        // 0으로 나누기 방지
+        if (maxVal > 1e-6) ratio[maxIdx] = newSigma / maxVal;
+    }
+
+    // 5. Reconstruction Implicitly
+    // A' = A * V * Ratio * V^T
+    // 행렬 곱셈 최적화: R = V * Ratio * V^T 를 먼저 계산 (4x4 상수 행렬)
+    
+    Mat4 M; // Transformation Matrix
+    // M = V * diag(ratio) * V^T
+    for(int r=0; r<4; r++) {
+        for(int c=0; c<4; c++) {
+            float sum = 0.0;
+            for(int k=0; k<4; k++) {
+                sum += V.m[r][k] * ratio[k] * V.m[c][k]; // V[c][k] is V^T[k][c]
+            }
+            M.m[r][c] = sum;
+        }
+    }
+
+    // Final Apply: Y_new = Y_old * M
+    // 각 픽셀(행 벡터)에 대해 M을 곱함
+    for(int r=0; r<4; r++) {     // Row of Block
+        for(int c=0; c<4; c++) { // Col of Block
+            // Y[r][c] is actually influenced by Y[r][0..3]
+            // Wait, A' = U S' V^T. 
+            // My formula A' = A V S^-1 S' V^T implies row operations.
+            // A is 4x4 where rows are spatial Y.
+            // Correct application: Row_r_new = Row_r_old * M
+            
+            float y_new = 0.0;
+            for(int k=0; k<4; k++) {
+                y_new += Y[r*4 + k] * M.m[k][c];
+            }
+            
+            // Color Restore
+            float y_old = Y[r*4 + c];
+            vec3 rgb = pixels[r*4 + c];
+            
+            // 밝기 비율만큼 RGB 스케일링 (색상 유지)
+            if (y_old > 1e-5) rgb *= (y_new / y_old);
+            
+            imageStore(img_dst, blkPos + ivec2(c, r), vec4(rgb, 1.0));
+        }
+    }
+}

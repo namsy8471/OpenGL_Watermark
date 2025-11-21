@@ -1,5 +1,8 @@
 ﻿// Utils.h
 #pragma once
+#define _CRT_SECURE_NO_WARNINGS
+#include <stb_image_write.h>
+
 #include <glad/glad.h>
 
 #include <iostream>
@@ -7,6 +10,41 @@
 #include <fstream>  
 #include <sstream>  
 #include <filesystem>
+
+struct ImageMetrics {
+    double psnr;
+    double ssim; // (간소화: 0.0으로 처리)
+};
+
+// PSNR 계산 함수
+inline ImageMetrics CalculateMetrics(const std::vector<unsigned char>& original,
+    const std::vector<unsigned char>& target,
+    int width, int height)
+{
+    double mse = 0.0;
+    size_t totalPixels = static_cast<size_t>(width) * height * 4; // RGBA
+
+    // OpenMP가 가능하다면 #pragma omp parallel for reduction(+:mse)
+    for (size_t i = 0; i < totalPixels; ++i) {
+        double diff = static_cast<double>(original[i]) - static_cast<double>(target[i]);
+        mse += diff * diff;
+    }
+    mse /= static_cast<double>(totalPixels); // 채널 단위 평균
+
+    // 8bit 이미지 기준 최대값 255
+    double psnr = (mse < 1e-10) ? 100.0 : (10.0 * log10((255.0 * 255.0) / mse));
+    return { psnr, 0.0 };
+}
+
+
+// 결과 저장 구조체
+struct BenchmarkResult {
+    std::string algoName;
+    std::string resolution;
+    float gpuTimeMs;
+    float cpuTimeMs;
+    double psnr;
+};
 
 // --- 셰이더 파일(.comp)을 읽어 C++ string으로 반환하는 유틸리티 ---
 inline std::string loadShaderSourceFromFile(const char* shaderFileName)
@@ -106,4 +144,13 @@ inline GLuint loadComputeShader(const char* computePath)
     glDeleteShader(computeShader);
     std::cout << "Compute Shader '" << computePath << "' loaded successfully." << '\n';
     return shaderProgram;
+}
+
+// 텍스처 저장 유틸리티
+inline void SaveTextureToPNG(GLuint textureID, int width, int height, std::string filename) {
+    std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 4);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+    stbi_write_png(filename.c_str(), width, height, 4, pixels.data(), width * 4);
 }

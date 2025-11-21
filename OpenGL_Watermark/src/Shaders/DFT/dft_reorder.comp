@@ -1,0 +1,23 @@
+// [DFT/dft_reorder.comp]
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+layout(rg32f, binding = 0) readonly uniform image2D img_src;
+layout(rg32f, binding = 1) writeonly uniform image2D img_dst;
+uniform int u_Size;
+uniform int u_Mode;
+uniform int u_Shift; // C++에서 (32-log2(N)) 계산해서 넘겨줌
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_Size || gid.y >= u_Size) return;
+    ivec2 srcPos = gid;
+    if (u_Mode == 0) {
+        uint rev = bitfieldReverse(uint(gid.x));
+        srcPos.x = int(rev >> u_Shift);
+    } else {
+        uint rev = bitfieldReverse(uint(gid.y));
+        srcPos.y = int(rev >> u_Shift);
+    }
+    vec4 val = imageLoad(img_src, srcPos);
+    imageStore(img_dst, gid, val);
+}

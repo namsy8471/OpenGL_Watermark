@@ -1,0 +1,37 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(rg32f, binding = 0) uniform image2D img_freq; // Read-Write
+layout(std430, binding = 2) buffer BitStream { uint bits[]; };
+
+uniform uint PaddedSize;
+uniform float Strength;
+uniform uint Embed;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (pos.x >= PaddedSize || pos.y >= PaddedSize) return;
+
+    if (Embed == 0) return;
+
+    vec2 val = imageLoad(img_freq, pos).xy;
+    
+    // 워터마킹 로직 (Magnitude 조작)
+    float mag = length(val);
+    float phase = atan(val.y, val.x);
+    
+    // [간단한 예시] 특정 주파수 대역에만 삽입
+    // DC 성분(0,0)과 너무 고주파는 피함
+    if (pos.x > 10 && pos.x < 500 && pos.y > 10 && pos.y < 500) {
+        // 비트맵핑 (간소화)
+        uint bit = bits[(pos.y * PaddedSize + pos.x) % 1024];
+        float w = (bit == 1) ? 1.0 : -1.0;
+        
+        mag *= (1.0 + Strength * 0.001 * w);
+    }
+
+    val.x = mag * cos(phase);
+    val.y = mag * sin(phase);
+
+    imageStore(img_freq, pos, vec4(val, 0.0, 0.0));
+}

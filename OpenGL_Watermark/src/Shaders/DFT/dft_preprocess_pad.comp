@@ -1,0 +1,25 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_src;
+layout(rg32f, binding = 1) writeonly uniform image2D img_padded;
+
+uniform uint SrcWidth, SrcHeight;
+uniform uint PaddedSize;
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (pos.x >= PaddedSize || pos.y >= PaddedSize) return;
+
+    vec2 complexVal = vec2(0.0, 0.0);
+
+    if (pos.x < SrcWidth && pos.y < SrcHeight) {
+        vec3 px = imageLoad(img_src, pos).rgb;
+        
+        // ★ [수정] 단순 평균((r+g+b)/3) 대신 Luma(Y) 공식 사용
+        // Postprocess의 YCbCr 공식과 짝을 맞춤
+        complexVal.x = 0.299 * px.r + 0.587 * px.g + 0.114 * px.b;
+    }
+    
+    imageStore(img_padded, pos, vec4(complexVal, 0.0, 0.0));
+}

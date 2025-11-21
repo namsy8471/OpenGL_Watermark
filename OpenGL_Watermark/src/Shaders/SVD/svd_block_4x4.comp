@@ -1,0 +1,175 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in; // 8x8개의 "블록"을 병렬 처리
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_src;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_dst;
+
+uniform uint Width, Height;
+uniform float Strength;
+uniform uint Embed;
+uniform uint BitSize; // 워터마크 비트 배열 크기
+
+layout(std430, binding = 2) buffer BitStream { uint bits[]; };
+
+// 4x4 행렬 구조체 (레지스터에 저장됨)
+struct Mat4 { float m[4][4]; };
+
+// 야코비 회전을 위한 2x2 회전 (Givens Rotation)
+// p, q: 회전할 행/열 인덱스
+void JacobiRotate(inout Mat4 A, inout Mat4 V, int p, int q) {
+    if (A.m[p][q] == 0.0) return;
+
+    float d = (A.m[q][q] - A.m[p][p]) / (2.0 * A.m[p][q]);
+    float t = sign(d) / (abs(d) + sqrt(d*d + 1.0));
+    float c = 1.0 / sqrt(t*t + 1.0);
+    float s = c * t;
+
+    // A = J^T * A * J (상사 변환)
+    // 행렬의 해당 행/열만 업데이트 (최적화)
+    for (int i = 0; i < 4; i++) {
+        float Api = A.m[p][i];
+        float Aqi = A.m[q][i];
+        A.m[p][i] = c * Api - s * Aqi;
+        A.m[q][i] = s * Api + c * Aqi;
+    }
+    for (int i = 0; i < 4; i++) {
+        float Aip = A.m[i][p];
+        float Aiq = A.m[i][q];
+        A.m[i][p] = c * Aip - s * Aiq;
+        A.m[i][q] = s * Aip + c * Aiq;
+    }
+
+    // V 행렬 누적 (고유벡터)
+    for (int i = 0; i < 4; i++) {
+        float Vip = V.m[i][p];
+        float Viq = V.m[i][q];
+        V.m[i][p] = c * Vip - s * Viq;
+        V.m[i][q] = s * Vip + c * Viq;
+    }
+}
+
+void main() {
+    // 1. 현재 스레드가 담당할 4x4 블록의 좌상단 좌표
+    // gl_GlobalInvocationID 하나가 "4x4 블록 하나"를 처리함
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4; 
+    
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 2. 이미지 로드 -> 행렬 A 구성
+    Mat4 U, V, S; // S는 A가 대각화되면서 변함
+    
+    // 초기화: V는 단위행렬
+    for(int i=0; i<4; i++) 
+        for(int j=0; j<4; j++) 
+            V.m[i][j] = (i==j) ? 1.0 : 0.0;
+
+    // 데이터 로드 (RGB -> Y 변환하여 SVD 수행 가정)
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_src, blkPos + ivec2(x, y)).rgb;
+            // SVD 대상: 밝기(Luminance)
+            S.m[y][x] = 0.299*p.r + 0.587*p.g + 0.114*p.b; 
+        }
+    }
+    
+    Mat4 A_original = S; // 복원할 때 쓰려고 저장 (U를 구하기 귀찮으니 V만 구해서 처리)
+
+    // 3. Jacobi Iteration (Symmetric Matrix가 아니므로 A^T A를 분해해야 함)
+    // 하지만 이미지 블록 압축에서는 보통 "Symmetric SVD" 근사를 쓰거나
+    // "One-Sided Jacobi"를 씁니다.
+    // 여기서는 간략화를 위해 [A = U S V^T] 대신, A가 대칭행렬이라고 가정하고 고유값 분해를 하거나
+    // 단순히 A^T * A 에 대해 고유값 분해를 수행하여 V를 구하는 정석 루트를 탑니다.
+    
+    // [간편 구현] A^T * A 계산
+    Mat4 AtA;
+    for(int i=0; i<4; i++) {
+        for(int j=0; j<4; j++) {
+            float sum = 0.0;
+            for(int k=0; k<4; k++) sum += S.m[k][i] * S.m[k][j];
+            AtA.m[i][j] = sum;
+        }
+    }
+    
+    // AtA를 대각화 -> V 행렬과 고유값(Singular Value의 제곱)을 얻음
+    // 5회 반복 (4x4는 작아서 금방 수렴함)
+    for (int iter = 0; iter < 5; ++iter) {
+        JacobiRotate(AtA, V, 0, 1);
+        JacobiRotate(AtA, V, 0, 2);
+        JacobiRotate(AtA, V, 0, 3);
+        JacobiRotate(AtA, V, 1, 2);
+        JacobiRotate(AtA, V, 1, 3);
+        JacobiRotate(AtA, V, 2, 3);
+    }
+
+    // 4. Singular Values ($\Sigma$) 추출
+    // AtA의 대각성분은 특이값의 제곱임 (\sigma^2)
+    float sigma[4];
+    for(int i=0; i<4; i++) sigma[i] = sqrt(max(AtA.m[i][i], 0.0));
+
+    // 5. 워터마킹 (최대 특이값에 마킹)
+    if (Embed == 1) {
+        // 가장 큰 특이값 찾기
+        int maxIdx = 0;
+        float maxVal = sigma[0];
+        for(int i=1; i<4; i++) if(sigma[i] > maxVal) { maxVal = sigma[i]; maxIdx = i; }
+        
+        // 비트 가져오기
+        uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+        uint bit = bits[bitIdx];
+        float w = (bit == 1) ? 1.0 : -1.0;
+
+        // 삽입: \sigma' = \sigma * (1 + \alpha * w)
+        sigma[maxIdx] *= (1.0 + Strength * 0.01 * w);
+    }
+
+    // 6. 재구성 (Reconstruction)
+    // A' = U * \Sigma' * V^T
+    // 우리는 U를 안 구했습니다. 하지만 A = U \Sigma V^T 식에서 U = A * V * \Sigma^-1 임을 이용합니다.
+    // 즉 A_new = (A_old * V * \Sigma_old^-1) * \Sigma_new * V^T
+    
+    Mat4 Recon;
+    for (int r = 0; r < 4; r++) {     // Row
+        for (int c = 0; c < 4; c++) { // Col
+            float sum = 0.0;
+            // 식 전개: A * V
+            // 여기에 \Sigma_new / \Sigma_old 비율을 곱하고 다시 V^T를 곱함
+            
+            for (int k = 0; k < 4; k++) { // k번째 특이값 성분
+                // U_k 성분 = (A_row * V_col_k) / sigma_old_k
+                // 여기에 sigma_new_k 를 곱함 -> ratio
+                
+                float dotAV = 0.0;
+                for(int l=0; l<4; l++) dotAV += A_original.m[r][l] * V.m[l][k];
+                
+                float ratio = 1.0; // 기본
+                float oldS = sqrt(max(AtA.m[k][k], 1e-6)); // 저장해둔게 없어서 AtA에서 다시 가져옴(약간 오차 감수)
+                // 사실 아까 sigma[] 배열이 new 값으로 덮어써졌으므로, 
+                // 워터마킹 비율만큼만 곱해주면 됨.
+                
+                // (간소화) A' = \sum (u_k * \sigma'_k * v_k^T)
+                // u_k = (A * v_k) / \sigma_k
+                // Therefore term = (A * v_k) * (\sigma'_k / \sigma_k) * v_k^T
+                
+                float s_old = sqrt(max(AtA.m[k][k], 1e-6)); // AtA는 대각화된 상태
+                float s_new = sigma[k]; // 워터마킹된 값
+                
+                sum += dotAV * (s_new / s_old) * V.m[c][k];
+            }
+            Recon.m[r][c] = sum;
+        }
+    }
+
+    // 7. 저장 (Y값만 교체 + CbCr 복원은 생략함, 필요시 추가)
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec4 color = imageLoad(img_src, blkPos + ivec2(x, y));
+            float newY = Recon.m[y][x];
+            
+            // 간단히 RGB에 델타만 더해주는 방식 (색상 보존)
+            float oldY = 0.299*color.r + 0.587*color.g + 0.114*color.b;
+            vec3 resRGB = color.rgb * (newY / max(oldY, 0.001));
+            
+            imageStore(img_dst, blkPos + ivec2(x, y), vec4(resRGB, 1.0));
+        }
+    }
+}

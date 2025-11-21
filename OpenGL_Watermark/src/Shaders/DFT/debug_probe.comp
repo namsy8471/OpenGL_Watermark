@@ -1,0 +1,13 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(rg32f, binding = 0) readonly uniform image2D texInput;  // °Ë»çÇÒ ³ð
+layout(rgba32f, binding = 1) writeonly uniform image2D texDebug; // È­¸é¿¡ »Ñ¸± ³ð
+
+uniform uint Size; // PaddedSize (2048)
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    
+    imageStore(texDebug, pos, vec4(1.0, 1.0, 1.0, 1.0));
+}

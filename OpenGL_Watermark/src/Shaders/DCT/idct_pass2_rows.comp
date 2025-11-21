@@ -82,5 +82,6 @@ void main()
     if (writeX < Width && writeY < Height)
     {
         imageStore(FinalOutput, ivec2(writeX, writeY), vec4(finalPixel, 1.0f));
+
     }
 }

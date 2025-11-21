@@ -1,0 +1,98 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_src;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_dst;
+
+layout(std430, binding = 2) buffer BitStream { uint bits[]; };
+
+uniform uint Width, Height;
+uniform float Strength;
+uniform uint Embed;
+uniform uint BitSize;
+
+struct Mat4 { float m[4][4]; };
+
+void MatMul(in Mat4 A, in Mat4 B, out Mat4 C) {
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            C.m[r][c] = A.m[r][0] * B.m[0][c] + A.m[r][1] * B.m[1][c] +
+                        A.m[r][2] * B.m[2][c] + A.m[r][3] * B.m[3][c];
+        }
+    }
+}
+
+void Transpose(in Mat4 A, out Mat4 T) {
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) T.m[i][j] = A.m[j][i];
+}
+
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 1. 데이터 로드
+    Mat4 Y_block;
+    vec3 originRGB[16];
+
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_src, blkPos + ivec2(x, y)).rgb;
+            originRGB[y*4 + x] = p;
+            Y_block.m[y][x] = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+        }
+    }
+
+    // 2. Haar DWT Matrix (4x4)
+    Mat4 T;
+    float h0 = 0.5;
+    float h1 = 0.70710678;
+
+    T.m[0][0]=h0; T.m[0][1]=h0; T.m[0][2]=h0;  T.m[0][3]=h0;
+    T.m[1][0]=h0; T.m[1][1]=h0; T.m[1][2]=-h0; T.m[1][3]=-h0;
+    T.m[2][0]=h1; T.m[2][1]=-h1; T.m[2][2]=0.0; T.m[2][3]=0.0;
+    T.m[3][0]=0.0; T.m[3][1]=0.0; T.m[3][2]=h1; T.m[3][3]=-h1;
+
+    Mat4 T_trans;
+    Transpose(T, T_trans);
+
+    // 3. Forward DWT: Coeffs = T * Y * T^T
+    Mat4 Temp, Coeffs;
+    MatMul(T, Y_block, Temp);
+    MatMul(Temp, T_trans, Coeffs);
+
+    // 4. 워터마킹 삽입
+    if (Embed == 1) {
+        uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+        float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
+
+        // Haar DWT의 Detail 계수 중 하나 선택
+        // (1, 1) 위치: Diagonal Detail (LH/HL 교차점)
+        // 너무 강한 엣지 부분이므로 (0, 1) 같은 Global difference 부분이 나을 수도 있음.
+        // 여기서는 (0, 1)을 타겟으로 함 (수평 방향 큰 변화)
+        
+        float val = Coeffs.m[0][1];
+        Coeffs.m[0][1] = val * (1.0 + Strength * 0.01 * w);
+    }
+
+    // 5. Inverse DWT: Y_new = T^T * Coeffs * T
+    Mat4 Y_new;
+    MatMul(T_trans, Coeffs, Temp);
+    MatMul(Temp, T, Y_new);
+
+    // 6. 컬러 복원
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            float oldY = Y_block.m[y][x];
+            float newY = Y_new.m[y][x];
+            vec3 rgb = originRGB[y*4 + x];
+
+            if (oldY > 1e-5) {
+                rgb *= (newY / oldY);
+            } else {
+                rgb += (newY - oldY);
+            }
+            
+            imageStore(img_dst, blkPos + ivec2(x, y), vec4(rgb, 1.0));
+        }
+    }
+}

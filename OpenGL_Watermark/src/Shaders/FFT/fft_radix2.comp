@@ -1,0 +1,82 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+
+layout(rg32f, binding = 0) readonly uniform image2D img_src;
+layout(rg32f, binding = 1) writeonly uniform image2D img_dst;
+
+uniform int u_Stage;      // 0, 1, 2...
+uniform int u_PassID;     // 0: 가로, 1: 세로
+uniform int u_Inverse;    // 0: Forward, 1: Inverse
+uniform int u_Size;       // 2048
+
+const float PI = 3.14159265358979323846;
+
+vec2 MulComplex(vec2 a, vec2 b) {
+    return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_Size || gid.y >= u_Size) return;
+
+    // 나비 연산 파라미터
+    int p = 1 << u_Stage;      // 반쪽 길이 (1, 2, 4...)
+    int size = p * 2;          // 전체 길이 (2, 4, 8...)
+
+    // 현재 처리할 인덱스 k
+    int k = (u_PassID == 0) ? gid.x : gid.y;
+    int n = (u_PassID == 0) ? gid.y : gid.x; // 고정축
+
+    // 내가 나비의 윗날개인가? 아랫날개인가?
+    // (k & p) == 0 이면 윗쪽
+    bool isTop = ((k & p) == 0);
+
+    // 짝꿍 인덱스 계산
+    // 윗날개면 +p, 아랫날개면 -p
+    int pairK = isTop ? (k + p) : (k - p);
+
+    // 텍스처 좌표
+    ivec2 myPos   = gid;
+    ivec2 pairPos = (u_PassID == 0) ? ivec2(pairK, n) : ivec2(n, pairK);
+
+    // 데이터 로드
+    vec2 myVal   = imageLoad(img_src, myPos).xy;
+    vec2 pairVal = imageLoad(img_src, pairPos).xy;
+
+    // 회전 인자 (Twiddle Factor) 계산
+    // k % p (현재 그룹 내에서의 오프셋)
+    int offset = k & (p - 1);
+    float angle = -1.0 * PI * float(offset) / float(p);
+    if (u_Inverse == 1) angle = -angle;
+
+    vec2 W = vec2(cos(angle), sin(angle));
+
+    // ★ 나비 연산 수식 (DIT Standard)
+    // Top:    My + W * Pair
+    // Bottom: Pair - W * My  <-- (X) 
+    // Bottom: My - W * Pair  <-- (X)
+    // 
+    // 정확한 DIT 수식:
+    // Top Input (A), Bot Input (B) 가 있을 때
+    // Top Output = A + W*B
+    // Bot Output = A - W*B
+    
+    // 하지만 지금 'myVal'은 내가 Top이면 A이고, 내가 Bot이면 B가 아님!
+    // 입력 데이터는 이미 스테이지별로 섞여있음.
+    // 현재 구조에서는 pairVal이 나의 짝꿍임.
+    
+    // 내가 Top이면: 나는 A위치, pair는 B위치. Output = My + W*Pair
+    // 내가 Bot이면: 나는 B위치, pair는 A위치. Output = Pair - W*My
+    
+    vec2 result;
+    if (isTop) {
+        vec2 w_pair = MulComplex(W, pairVal);
+        result = myVal + w_pair;
+    } else {
+        // 내가 아래쪽이면, pairVal이 A(Top)이고 myVal이 B(Bot)임
+        vec2 w_my = MulComplex(W, myVal);
+        result = pairVal - w_my;
+    }
+
+    imageStore(img_dst, gid, vec4(result, 0.0, 1.0));
+}
