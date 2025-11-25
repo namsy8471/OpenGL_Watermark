@@ -55,6 +55,18 @@ struct ImageMetrics {
     double ssim;
 };
 
+
+// 결과 저장 구조체 (SSIM 필드 추가)
+struct BenchmarkResult {
+    std::string algoName;
+    std::string resolution;
+    float alpha;
+    float gpuTimeMs;
+    float cpuTimeMs;
+    double psnr;
+    double ssim; // Added
+};
+
 // [Senior Guide] SSIM 계산 함수
 // 메모리 접근 패턴(Cache Locality)을 고려해야 하지만, 이미지 전체를 스캔해야 하므로
 // CPU 캐시 미스는 필연적입니다. 정확한 계산을 위해 가우시안 윈도우 대신 
@@ -204,15 +216,6 @@ GLuint loadComputeShader(const char* computePath) {
     return program;
 }
 
-// 결과 저장 구조체 (SSIM 필드 추가)
-struct BenchmarkResult {
-    std::string algoName;
-    std::string resolution;
-    float gpuTimeMs;
-    float cpuTimeMs;
-    double psnr;
-    double ssim; // Added
-};
 
 void SaveResultsToCSV(const std::vector<BenchmarkResult>& results, const char* filename)
 {
@@ -223,8 +226,14 @@ void SaveResultsToCSV(const std::vector<BenchmarkResult>& results, const char* f
         const auto& res = results[i];
         // 알고리즘 4개 (DCT, DWT, SVD, DFT)
         int iter = static_cast<int>(i / 4) + 1;
-        file << iter << "," << res.algoName << "," << res.resolution << ","
-            << res.gpuTimeMs << "," << res.cpuTimeMs << "," << res.psnr << "," << res.ssim << "\n";
+        file << iter << "," 
+    		<< res.algoName << ","
+    		<< res.resolution << ","
+			<< res.alpha << ","
+            << res.gpuTimeMs << "," 
+    		<< res.cpuTimeMs << ","
+    		<< res.psnr << ","
+    		<< res.ssim << "\n";
     }
     file.close();
     std::cout << "Results saved to " << filename << std::endl;
@@ -865,6 +874,11 @@ int main()
     struct Resolution { std::string name; int w; int h; };
     Resolution resolutions[] = { {"FHD", 1920, 1080}, {"4K", 3840, 2160} };
 
+    // ★ Alpha Sweep 전용 변수
+    bool g_RunAlphaSweep = false;
+    float g_SweepCurrentAlpha = 0.0f;
+    int g_SweepAlgoIndex = 0; // 0~6 (모든 알고리즘 순회)
+
     std::vector<BenchmarkResult> g_Results;
     GpuTimer gpuTimer;
 	gpuTimer.Init();
@@ -906,6 +920,19 @@ int main()
             g_CurrentResIndex = 0;
             g_Results.clear();
         }
+
+        // ... 기존 UI 버튼들 아래에 추가 ...
+        ImGui::Separator();
+        ImGui::Text("Research Mode:");
+        if (ImGui::Button("Run Alpha Sweep (0.0 -> 1.0)")) {
+            g_RunAlphaSweep = true;
+            g_SweepCurrentAlpha = 0.0f;
+            g_SweepAlgoIndex = 0;
+            g_Results.clear();
+            std::cout << "[System] Starting Alpha Sweep..." << std::endl;
+        }
+        ImGui::Text("Finds optimal Alpha for PSNR ~40dB");
+
         ImGui::End();
 
         // Preview
@@ -923,7 +950,175 @@ int main()
         ImGui::End();
 
         // Logic
-        if (!g_RunBenchmark) {
+        if (g_RunBenchmark) {
+
+            // Benchmark Loop
+            Resolution res = resolutions[g_CurrentResIndex];
+            if (g_BenchmarkIteration == 0 && g_CurrentResIndex < 2) {
+                resMgr.Resize(res.w, res.h, coeffsToUse);
+                glFinish();
+                currentWidth = res.w; currentHeight = res.h;
+            }
+
+            // [Benchmark Algorithm List]
+            // 0:DCT_Legacy, 1:DWT_Legacy, 2:SVD_Block, 3:SVD_Impl, 4:DFT, 5:DCT_Opt, 6:DWT_Opt
+            std::string algoNames[] = {
+                "DCT (Legacy)", "DWT (Legacy)", "SVD (Block)", "SVD (Implicit)",
+                "DFT", "DCT (Optimized)", "DWT (Optimized)"
+            };
+
+            // i loops through all 7 algorithms
+            for (int i = 0; i < 7; ++i) {
+                cpuTimer.Start();
+                gpuTimer.Start();
+
+                if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4,
+                    resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final,
+                    resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
+                    g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4,
+                    resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final,
+                    resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
+                    g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
+                else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
+                else if (i == 4) Run_Full_FFT_Pipeline(
+                    dftPadProg,    // Pad
+                    dftReorderProg,
+                    dftCoreProg,   // Core FFT
+                    dftEmbedProg,  // Embed
+                    dftCropProg,   // Crop
+                    debugProbeProg,  // Debug Probe (optional)
+                    resMgr.tex_Source,    // 원본
+                    resMgr.tex_DFT_Final, // 최종 결과 (Resize 함수에 변수명 맞춰주세요. 예: tex_Final)
+                    resMgr.tex_FFT_Ping,  // 작업용 1 (2048 size)
+                    resMgr.tex_FFT_Pong,  // 작업용 2 (2048 size)
+                    resMgr.buf_Bitstream, // 워터마크 비트
+                    currentWidth, currentHeight,
+                    g_EnableEmbed, g_EmbeddingStrength
+                );
+                else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
+                else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
+
+                gpuTimer.Stop();
+                float cpuTime = cpuTimer.GetTimeMs();
+                float gpuTime = gpuTimer.GetTimeMs();
+
+                // Metrics (Calculate only on first iteration to save time)
+                double psnr = 0, ssim = 0;
+                if (g_BenchmarkIteration == 0) {
+                    GLuint outTex = (i == 0) ? resMgr.tex_Final : (i == 1) ? resMgr.tex_DWT_Final : (i == 2 || i == 3) ? resMgr.tex_SVD_Final : (i == 4) ? resMgr.tex_DFT_Final : resMgr.tex_Opt_Final;
+                    // Readback & Calc Logic...
+                }
+                g_Results.push_back({ algoNames[i], res.name, g_SweepCurrentAlpha, gpuTime, cpuTime, psnr, ssim });
+            }
+
+            g_BenchmarkIteration++;
+            if (g_BenchmarkIteration >= g_IterationsPerRes) {
+                g_BenchmarkIteration = 0;
+                g_CurrentResIndex++;
+                if (g_CurrentResIndex >= 2) {
+                    g_RunBenchmark = false;
+                    SaveResultsToCSV(g_Results, "Benchmark_Ultimate_Results.csv");
+                    // Reset
+                    g_CurrentResIndex = 0;
+                    resMgr.Resize(1920, 1080, coeffsToUse);
+                    currentWidth = 1920; currentHeight = 1080;
+                }
+            }
+
+            
+        }
+
+        // ... 기존 g_RunBenchmark 블록 끝난 뒤 ...
+
+        else if (g_RunAlphaSweep) {
+            // 1. 현재 해상도 고정 (현재 창 크기나 설정된 해상도 사용)
+            // 테스트를 위해 FHD(1920x1080) 권장. 필요시 리사이즈 호출.
+            if (g_SweepCurrentAlpha == 0.0f && g_SweepAlgoIndex == 0) {
+                resMgr.Resize(1920, 1080, coeffsToUse);
+                currentWidth = 1920; currentHeight = 1080;
+            }
+
+            // 2. 셰이더에 보낼 Strength 계산
+            // 셰이더: alpha = Strength * 0.01 
+            // 목표: alpha (0~1)
+            // 따라서: Strength = alpha * 100.0
+            float currentStrength = g_SweepCurrentAlpha * 100.0f;
+
+            std::string algoNames[] = {
+                "DCT (Legacy)", "DWT (Legacy)", "SVD (Block)", "SVD (Implicit)",
+                "DFT", "DCT (Optimized)", "DWT (Optimized)"
+            };
+
+            cpuTimer.Start();
+            gpuTimer.Start();
+
+            // 3. 알고리즘 실행
+            int i = g_SweepAlgoIndex;
+            if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4,
+                resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final,
+                resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
+                g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+            else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4,
+                resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final,
+                resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
+                g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+            else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+            else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+            else if (i == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+            else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+            else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+
+            gpuTimer.Stop();
+            glFinish(); // 확실한 동기화
+
+            // 4. PSNR 측정 (매 프레임 CPU Readback 필수)
+            GLuint outTex = (i == 0) ? resMgr.tex_Final : (i == 1) ? resMgr.tex_DWT_Final : (i == 2 || i == 3) ? resMgr.tex_SVD_Final : (i == 4) ? resMgr.tex_DFT_Final : resMgr.tex_Opt_Final;
+
+            std::vector<unsigned char> srcPx(static_cast<size_t>(currentWidth) * currentHeight * 4);
+            std::vector<unsigned char> dstPx(static_cast<size_t>(currentWidth) * currentHeight * 4);
+
+            glBindTexture(GL_TEXTURE_2D, resMgr.tex_Source);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, srcPx.data());
+            glBindTexture(GL_TEXTURE_2D, outTex);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dstPx.data());
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            ImageMetrics m = CalculateMetrics(srcPx, dstPx, currentWidth, currentHeight);
+
+            // 5. 결과 저장
+            g_Results.push_back({
+                algoNames[i],
+                "FHD",
+                g_SweepCurrentAlpha, // 0.0 ~ 1.0
+                gpuTimer.GetTimeMs(),
+                cpuTimer.GetTimeMs(),
+                m.psnr,
+                m.ssim
+                });
+
+            // 진행 상황 로그 출력 (너무 많으면 느려지니 0.1단위만 출력해도 됨)
+            std::cout << "Algo: " << i << " | Alpha: " << g_SweepCurrentAlpha << " | PSNR: " << m.psnr << '\n';
+
+            // 6. 다음 단계로 이동
+            g_SweepCurrentAlpha += 0.001f; // 0.001 단위 증가
+
+            if (g_SweepCurrentAlpha > 1.0001f) { // 부동소수점 오차 고려
+                g_SweepCurrentAlpha = 0.0f;
+                g_SweepAlgoIndex++; // 다음 알고리즘으로
+
+                // 모든 알고리즘 완료?
+                if (g_SweepAlgoIndex >= 7) {
+                    g_RunAlphaSweep = false;
+                    SaveResultsToCSV(g_Results, "Alpha_Sweep_Results.csv");
+                    std::cout << "[System] Alpha Sweep Completed!" << std::endl;
+                }
+            }
+        }
+
+        else {
+
             if (g_AlgorithmChoice == 0) {
                 Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4,
                     resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final,
@@ -962,7 +1157,7 @@ int main()
                     g_EnableEmbed, g_EmbeddingStrength
                 );
             }
-            
+
             else if (g_AlgorithmChoice == 5) { // DCT Optimized
                 Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final,
                     resMgr.buf_Bitstream, currentWidth, currentHeight, g_EnableEmbed, g_EmbeddingStrength);
@@ -971,84 +1166,8 @@ int main()
                 Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final,
                     resMgr.buf_Bitstream, currentWidth, currentHeight, g_EnableEmbed, g_EmbeddingStrength);
             }
-        
+
             
-        }
-        else {
-            // Benchmark Loop
-            Resolution res = resolutions[g_CurrentResIndex];
-            if (g_BenchmarkIteration == 0 && g_CurrentResIndex < 2) {
-                resMgr.Resize(res.w, res.h, coeffsToUse);
-                glFinish();
-                currentWidth = res.w; currentHeight = res.h;
-            }
-
-            // [Benchmark Algorithm List]
-            // 0:DCT_Legacy, 1:DWT_Legacy, 2:SVD_Block, 3:SVD_Impl, 4:DFT, 5:DCT_Opt, 6:DWT_Opt
-            std::string algoNames[] = {
-                "DCT (Legacy)", "DWT (Legacy)", "SVD (Block)", "SVD (Implicit)",
-                "DFT", "DCT (Optimized)", "DWT (Optimized)"
-            };
-
-            // i loops through all 7 algorithms
-            for (int i = 0; i < 7; ++i) {
-                cpuTimer.Start();
-                gpuTimer.Start();
-
-                if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4,
-                    resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final,
-                    resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
-                    g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-                else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4,
-                    resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final,
-                    resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
-                    g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-                else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
-                else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
-                else if (i==4) Run_Full_FFT_Pipeline(
-                    dftPadProg,    // Pad
-                    dftReorderProg,
-                    dftCoreProg,   // Core FFT
-                    dftEmbedProg,  // Embed
-                    dftCropProg,   // Crop
-                    debugProbeProg,  // Debug Probe (optional)
-                    resMgr.tex_Source,    // 원본
-                    resMgr.tex_DFT_Final, // 최종 결과 (Resize 함수에 변수명 맞춰주세요. 예: tex_Final)
-                    resMgr.tex_FFT_Ping,  // 작업용 1 (2048 size)
-                    resMgr.tex_FFT_Pong,  // 작업용 2 (2048 size)
-                    resMgr.buf_Bitstream, // 워터마크 비트
-                    currentWidth, currentHeight,
-                    g_EnableEmbed, g_EmbeddingStrength
-                );
-                else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
-                else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
-
-                gpuTimer.Stop();
-                float cpuTime = cpuTimer.GetTimeMs();
-                float gpuTime = gpuTimer.GetTimeMs();
-
-                // Metrics (Calculate only on first iteration to save time)
-                double psnr = 0, ssim = 0;
-                if (g_BenchmarkIteration == 0) {
-                    GLuint outTex = (i == 0) ? resMgr.tex_Final : (i == 1) ? resMgr.tex_DWT_Final : (i == 2 || i == 3) ? resMgr.tex_SVD_Final : (i == 4) ? resMgr.tex_DFT_Final : resMgr.tex_Opt_Final;
-                    // Readback & Calc Logic...
-                }
-                g_Results.push_back({ algoNames[i], res.name, gpuTime, cpuTime, psnr, ssim });
-            }
-
-            g_BenchmarkIteration++;
-            if (g_BenchmarkIteration >= g_IterationsPerRes) {
-                g_BenchmarkIteration = 0;
-                g_CurrentResIndex++;
-                if (g_CurrentResIndex >= 2) {
-                    g_RunBenchmark = false;
-                    SaveResultsToCSV(g_Results, "Benchmark_Ultimate_Results.csv");
-                    // Reset
-                    g_CurrentResIndex = 0;
-                    resMgr.Resize(1920, 1080, coeffsToUse);
-                    currentWidth = 1920; currentHeight = 1080;
-                }
-            }
         }
 
         ImGui::Render();

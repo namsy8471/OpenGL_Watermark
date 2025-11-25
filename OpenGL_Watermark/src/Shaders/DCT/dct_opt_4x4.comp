@@ -64,18 +64,40 @@ void main() {
     MatMul(T, Y_block, Temp);
     MatMul(Temp, T_trans, Coeffs);
 
-    // 4. 워터마킹 삽입 (SVD 코드와 동일한 로직)
     if (Embed == 1) {
-        // 현재 블록에 해당하는 비트 가져오기
         uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+    
+        // 비트 값 (-1.0 or 1.0)
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
+        float alpha = Strength * 0.01;
 
-        // DCT의 중간 주파수 대역 (1, 2) 위치에 삽입
-        // (0,0)은 DC라 건드리면 밝기가 변함. (1,2)나 (2,1)이 강건함.
-        float val = Coeffs.m[1][2];
-        
-        // SVD 공식 적용: val' = val * (1 + alpha * w)
-        Coeffs.m[1][2] = val * (1.0 + Strength * 0.01 * w);
+        // ★ Spread Spectrum: 3개의 계수에 분산 삽입
+        // 타겟: (1,2), (2,1), (2,2) -> 중간 주파수 대역
+        // 루프(for)를 쓰지 않고 직접 명시해야 레지스터 최적화가 유지됨
+    
+        // ---------------------------------------------------------
+        // Target 1: (1, 2)
+        // ---------------------------------------------------------
+        float val1 = Coeffs.m[1][2];
+        // 패턴: (+1)을 곱한다고 가정
+        if (abs(val1) < 1e-5) Coeffs.m[1][2] = val1 + (alpha * 0.5 * w);       // Additive
+        else                  Coeffs.m[1][2] = val1 * (1.0 + alpha * w);       // Multiplicative
+
+        // ---------------------------------------------------------
+        // Target 2: (2, 1) - 대칭되는 위치
+        // ---------------------------------------------------------
+        float val2 = Coeffs.m[2][1];
+        // 패턴: 여기는 (-1)을 곱해서 패턴을 꼰다고 가정 (선택사항)
+        // 단순하게 가려면 여기도 w 그대로 사용
+        if (abs(val2) < 1e-5) Coeffs.m[2][1] = val2 + (alpha * 0.5 * w);
+        else                  Coeffs.m[2][1] = val2 * (1.0 + alpha * w);
+
+        // ---------------------------------------------------------
+        // Target 3: (1, 1) - 약간 저주파 쪽 (강인성 증가)
+        // ---------------------------------------------------------
+        float val3 = Coeffs.m[1][1];
+        if (abs(val3) < 1e-5) Coeffs.m[1][1] = val3 + (alpha * 0.5 * w);
+        else                  Coeffs.m[1][1] = val3 * (1.0 + alpha * w);
     }
 
     // 5. Inverse DCT: Y_new = T^T * Coeffs * T

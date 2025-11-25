@@ -60,18 +60,22 @@ void main() {
     MatMul(T, Y_block, Temp);
     MatMul(Temp, T_trans, Coeffs);
 
-    // 4. 워터마킹 삽입
     if (Embed == 1) {
         uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
 
-        // Haar DWT의 Detail 계수 중 하나 선택
-        // (1, 1) 위치: Diagonal Detail (LH/HL 교차점)
-        // 너무 강한 엣지 부분이므로 (0, 1) 같은 Global difference 부분이 나을 수도 있음.
-        // 여기서는 (0, 1)을 타겟으로 함 (수평 방향 큰 변화)
-        
+        // 타겟: 수평 상세 계수 (0, 1)
         float val = Coeffs.m[0][1];
-        Coeffs.m[0][1] = val * (1.0 + Strength * 0.01 * w);
+        float alpha = Strength * 0.5;
+
+        // ★ [핵심 수정] 하이브리드 방식 적용
+        if (abs(val) < 1e-5) {
+            // 값이 0이면 덧셈 (Haar는 계수 범위가 작으므로 가중치를 좀 더 작게)
+            Coeffs.m[0][1] = val + (alpha * 0.01 * w);
+        } else {
+            // 값이 있으면 곱셈
+            Coeffs.m[0][1] = val * (1.0 + alpha * w);
+        }
     }
 
     // 5. Inverse DWT: Y_new = T^T * Coeffs * T
