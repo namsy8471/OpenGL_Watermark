@@ -20,21 +20,27 @@ void main() {
     // 1. FFT 결과에서 "워터마킹된 명도(Y')" 가져오기
     // (정규화 포함: PaddedSize제곱으로 나눔)
     float scale = 1.0 / float(PaddedSize * PaddedSize);
-    float newY = imageLoad(img_padded, pos).x * scale;
+
+    float rawVal = imageLoad(img_padded, pos).x;
+    float newY = abs(rawVal) * scale;
 
     // 2. 원본 이미지에서 RGB 가져오기
     vec3 srcRGB = imageLoad(img_src, pos).rgb;
 
-    // 3. RGB -> YCbCr 변환 (색상 정보 추출)
-    // Y는 버리고 Cb, Cr만 취함
-    float Cb = -0.168736 * srcRGB.r - 0.331264 * srcRGB.g + 0.500000 * srcRGB.b;
-    float Cr =  0.500000 * srcRGB.r - 0.418688 * srcRGB.g - 0.081312 * srcRGB.b;
+    // 4. 원본 명도(Y) 계산
+    float oldY = 0.299 * srcRGB.r + 0.587 * srcRGB.g + 0.114 * srcRGB.b;
 
-    // 4. YCbCr -> RGB 역변환 (새로운 Y + 원래 CbCr)
+    // 5. 안전한 컬러 복원 (비율 유지)
     vec3 finalRGB;
-    finalRGB.r = newY + 1.402 * Cr;
-    finalRGB.g = newY - 0.344136 * Cb - 0.714136 * Cr;
-    finalRGB.b = newY + 1.772 * Cb;
+    
+    // 0으로 나누기 방지 및 너무 작은 값 예외 처리
+    if (oldY > 0.001) {
+        // 비율대로 밝기 조절
+        finalRGB = srcRGB * (newY / oldY);
+    } else {
+        // 원본이 검은색이면 그냥 밝기만 더해줌
+        finalRGB = srcRGB + (newY - oldY);
+    }
 
     // 5. 저장 (Alpha=1.0 필수)
     imageStore(img_final, pos, vec4(finalRGB, 1.0));

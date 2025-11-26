@@ -47,7 +47,10 @@ void main() {
     // k % p (현재 그룹 내에서의 오프셋)
     int offset = k & (p - 1);
     float angle = -1.0 * PI * float(offset) / float(p);
-    if (u_Inverse == 1) angle = -angle;
+    if (u_Inverse == 1)
+    {
+        angle = -angle;
+    }
 
     vec2 W = vec2(cos(angle), sin(angle));
 
@@ -67,15 +70,22 @@ void main() {
     
     // 내가 Top이면: 나는 A위치, pair는 B위치. Output = My + W*Pair
     // 내가 Bot이면: 나는 B위치, pair는 A위치. Output = Pair - W*My
-    
+
     vec2 result;
+    
     if (isTop) {
-        vec2 w_pair = MulComplex(W, pairVal);
-        result = myVal + w_pair;
+        // 나는 Top 위치. 따라서 내 값이 A, 짝꿍(아래) 값이 B.
+        // Result = My + W * Pair
+        vec2 WB = MulComplex(W, pairVal);
+        result = myVal + WB;
     } else {
-        // 내가 아래쪽이면, pairVal이 A(Top)이고 myVal이 B(Bot)임
-        vec2 w_my = MulComplex(W, myVal);
-        result = pairVal - w_my;
+        // 나는 Bot 위치. 따라서 짝꿍(위) 값이 A, 내 값이 B.
+        // Result = Pair - W * My
+        // 주의: W는 항상 B(Bot)에 곱해짐. 즉, 나(My)한테 곱해짐.
+        // 짝꿍(Top)을 계산할 때 썼던 W와 내 W는 'offset'이 같아서 동일함.5
+        
+        vec2 WB = MulComplex(W, myVal);
+        result = pairVal - WB;
     }
 
     imageStore(img_dst, gid, vec4(result, 0.0, 1.0));

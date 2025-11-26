@@ -265,11 +265,10 @@ void Run_FFT_Pass(GLuint progReorder, GLuint progFFT, GLuint texIn, GLuint texOu
 {
     // 1. Shift 값 계산 (비트 리버설을 위한 핵심 상수)
     // 2048(2^11) -> 32비트 전체 뒤집기 -> (32-11)=21만큼 우측 시프트해야 0~2047 범위에 들어옴
-    int logSize = 0;
     int stages = 0;
     int tempSize = size;
     while (tempSize > 1) { tempSize >>= 1; stages++; }
-    int shift = 32 - logSize;
+    int shift = 32 - stages;
 
     // 2. [줄 세우기] Reorder (이게 빠지면 격자무늬 나옴!)
     glUseProgram(progReorder);
@@ -298,8 +297,8 @@ void Run_FFT_Pass(GLuint progReorder, GLuint progFFT, GLuint texIn, GLuint texOu
     // (간소화된 로직: 외부에서 이미 texIn이 Padding되어 Ping에 들어있다고 가정)
     // 즉, 인자로 들어오는 texIn과 texOut을 핑퐁 버퍼 두 개라고 생각합니다.
 
-    GLuint bufRead = texIn;
-    GLuint bufWrite = texOut;
+    GLuint bufRead = texOut;
+    GLuint bufWrite = texIn;
 
     glUseProgram(progFFT);
     glUniform1i(glGetUniformLocation(progFFT, "u_PassID"), direction); // 0:Horiz, 1:Vert
@@ -860,7 +859,7 @@ int main()
 
     // Benchmark Params
     bool g_EnableEmbed = true;
-    float g_EmbeddingStrength = 10.0f; // DFT/DCT needs higher strength usually
+    float g_EmbeddingStrength = 25.0f; // DFT/DCT needs higher strength usually
     float g_CompressionThreshold = 0.0f;
     uint g_JacobiIterations = 4;
     float g_SigmaThreshold = 1.0e-7f;
@@ -1059,14 +1058,19 @@ int main()
             if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4,
                 resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final,
                 resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
-                g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                g_EnableEmbed, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
             else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4,
                 resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final,
                 resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
-                g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-            else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
-            else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
-            else if (i == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                g_EnableEmbed, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+            else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream,
+                currentWidth, currentHeight, true, currentStrength);
+            else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, 
+                resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+            else if (i == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg,
+                dftEmbedProg, dftCropProg, debugProbeProg,
+                resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, 
+                resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
             else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
             else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
 
