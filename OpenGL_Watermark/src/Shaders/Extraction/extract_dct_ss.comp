@@ -1,0 +1,130 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define BLOCK_SIZE 8
+#define BLOCK_SIZE_FLOAT 8.0f
+#define PI 3.14159265359f
+#define SQRT1_N (1.0f / sqrt(BLOCK_SIZE_FLOAT))
+#define SQRT2_N (sqrt(2.0f / BLOCK_SIZE_FLOAT))
+
+// 입력: 원본(0), 마킹(1)
+layout(binding = 0, rgba32f) uniform readonly image2D img_original;
+layout(binding = 1, rgba32f) uniform readonly image2D img_marked;
+
+// 출력: 비트 버퍼
+layout(std430, binding = 2) buffer ExtractedBits { uint out_bits[]; };
+// 입력: 패턴 버퍼
+layout(std430, binding = 3) buffer PatternBuffer { float PatternBuffer[]; } pattern_buf;
+
+uniform uint Width, Height;
+uniform uint BitSize;
+uniform uint CoefficientsToUse;
+
+// ZigZag (생략하지 않고 넣어야 함)
+const uvec2 ZigZagIndices[63] = uvec2[](
+    uvec2(0, 1), uvec2(1, 0), uvec2(2, 0), uvec2(1, 1), uvec2(0, 2), uvec2(0, 3), uvec2(1, 2), uvec2(2, 1),
+    uvec2(3, 0), uvec2(4, 0), uvec2(3, 1), uvec2(2, 2), uvec2(1, 3), uvec2(0, 4), uvec2(0, 5), uvec2(1, 4),
+    uvec2(2, 3), uvec2(3, 2), uvec2(4, 1), uvec2(5, 0), uvec2(6, 0), uvec2(5, 1), uvec2(4, 2), uvec2(3, 3),
+    uvec2(2, 4), uvec2(1, 5), uvec2(0, 6), uvec2(0, 7), uvec2(1, 6), uvec2(2, 5), uvec2(3, 4), uvec2(4, 3),
+    uvec2(5, 2), uvec2(6, 1), uvec2(7, 0), uvec2(7, 1), uvec2(6, 2), uvec2(5, 3), uvec2(4, 4), uvec2(3, 5),
+    uvec2(2, 6), uvec2(1, 7), uvec2(2, 7), uvec2(3, 6), uvec2(4, 5), uvec2(5, 4), uvec2(6, 3), uvec2(7, 2),
+    uvec2(7, 3), uvec2(6, 4), uvec2(5, 5), uvec2(4, 6), uvec2(3, 7), uvec2(4, 7), uvec2(5, 6), uvec2(6, 5),
+    uvec2(7, 4), uvec2(7, 5), uvec2(6, 6), uvec2(5, 7), uvec2(6, 7), uvec2(7, 6), uvec2(7, 7)
+);
+
+// 공유 메모리
+shared float BlockOrg[8][8];
+shared float BlockMark[8][8];
+
+// 2D DCT 직접 수행 (느리지만 정확함 - 8x8 Separable)
+void main() {
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    ivec3 tid = ivec3(gl_LocalInvocationID);
+    
+    // 1. 로드 (Y 변환)
+    uint bx = gid.x * 8; uint by = gid.y * 8;
+    vec3 p1 = imageLoad(img_original, ivec2(bx + tid.x, by + tid.y)).rgb;
+    vec3 p2 = imageLoad(img_marked,   ivec2(bx + tid.x, by + tid.y)).rgb;
+    
+    BlockOrg[tid.y][tid.x]  = 0.299*p1.r + 0.587*p1.g + 0.114*p1.b;
+    BlockMark[tid.y][tid.x] = 0.299*p2.r + 0.587*p2.g + 0.114*p2.b;
+    barrier();
+
+    // 2. DCT 계산 (내가 맡은 스레드 위치(u, v)의 계수값 계산)
+    // 원래는 Row/Col Pass를 나눠야 하지만, 여기선 각 스레드가 자기 위치 (u,v) 계수 하나만 전담 계산
+    // DCT(u, v) = C(u)C(v) * sum_x sum_y ( Pixel(x,y) * cos... * cos... )
+    
+    float sum_org = 0.0;
+    float sum_mark = 0.0;
+    float Cu = (tid.x == 0) ? SQRT1_N : SQRT2_N;
+    float Cv = (tid.y == 0) ? SQRT1_N : SQRT2_N;
+
+    for(int y=0; y<8; ++y) {
+        for(int x=0; x<8; ++x) {
+            float angleX = PI * (2.0*float(x)+1.0) * float(tid.x) / 16.0;
+            float angleY = PI * (2.0*float(y)+1.0) * float(tid.y) / 16.0;
+            float factor = cos(angleX) * cos(angleY);
+            
+            sum_org  += BlockOrg[y][x] * factor;
+            sum_mark += BlockMark[y][x] * factor;
+        }
+    }
+    float coeff_org  = Cu * Cv * sum_org;
+    float coeff_mark = Cu * Cv * sum_mark;
+
+    // 3. Spread Spectrum 추출 (Correlation Accumulation)
+    // 각 스레드(u,v)는 자기가 ZigZag에 포함되는지 확인하고, 포함되면 AtomicAdd로 투표
+    // 하지만 AtomicFloat은 없으므로... Shared Memory에서 취합
+    
+    // 이 방식은 복잡하므로 "단일 스레드(0,0)가 전담해서 순회"하는 방식으로 변경
+    // (성능은 떨어지지만 구현이 쉬움)
+    barrier();
+    
+    // 결과값을 공유 메모리에 저장해둠 (재활용)
+    BlockOrg[tid.y][tid.x] = coeff_org;
+    BlockMark[tid.y][tid.x] = coeff_mark;
+    barrier();
+
+    // ★ 스레드 (0,0) 혼자서 ZigZag 돌면서 Correlation 계산
+    if (tid.x == 0 && tid.y == 0) {
+        float correlation = 0.0;
+        uint numBlocksX = (Width + 8 - 1) / 8;
+        uint blockIdx = gid.y * numBlocksX + gid.x;
+        
+        // StartOffset 적용 (Embed와 동일하게 6)
+        uint StartOffset = 6; 
+
+        for(uint i=0; i < CoefficientsToUse; ++i) {
+            uint zigIdx = i + StartOffset;
+            if(zigIdx >= 63) break;
+            
+            uvec2 uv = ZigZagIndices[zigIdx];
+            
+            float val_org  = BlockOrg[uv.y][uv.x];
+            float val_mark = BlockMark[uv.y][uv.x];
+            float diff = val_mark - val_org;
+            
+            // 패턴 가져오기
+            uint patIdx = blockIdx * CoefficientsToUse + i;
+            float pattern = pattern_buf.PatternBuffer[patIdx];
+            
+            // Correlation: (diff) * pattern * sign(org)
+            // (Multiplicative Embedding 가정)
+            if (abs(val_org) > 1e-5) {
+                correlation += diff * pattern * sign(val_org);
+            } else {
+                correlation += diff * pattern; // Additive part
+            }
+        }
+        
+        uint detected = (correlation >= 0.0) ? 1 : 0;
+        
+        // 결과 저장 (4x4 블록 인덱스 체계와 맞추기 위해 변환 필요할 수 있음)
+        // Legacy는 8x8 블록 하나당 1비트
+        // Optimized는 4x4 블록 하나당 1비트
+        // -> C++에서 읽을 때 주의 필요. 일단 여기선 Legacy BitSize에 맞게 저장.
+        if (blockIdx < BitSize) {
+            out_bits[blockIdx] = detected;
+        }
+    }
+}

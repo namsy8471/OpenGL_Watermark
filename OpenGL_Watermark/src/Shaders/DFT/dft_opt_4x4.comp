@@ -1,0 +1,165 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_src;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_dst;
+
+// 워터마크 비트
+layout(std430, binding = 2) buffer BitStream { uint bits[]; };
+
+uniform uint Width, Height;
+uniform float Strength;
+uniform uint Embed;
+uniform uint BitSize;
+
+// 복소수 구조체 대신 vec2 사용 (x: Real, y: Imag)
+// 4x4 블록을 레지스터에 보관 (vec2 16개 = float 32개, 가볍다!)
+struct ComplexBlock { vec2 c[4][4]; };
+
+// --------------------------------------------------------
+// [최적화 핵심] 4-Point DFT (1D)
+// 4x4 행렬 곱셈 대신, N=4일 때의 특수 공식(Radix-4)을 사용해 연산량 극소화
+// Input: 4개의 복소수 (src) -> Output: 4개의 복소수 (dst)
+// --------------------------------------------------------
+void DFT_4(in vec2 src[4], out vec2 dst[4]) {
+    // k=0: sum(x)
+    dst[0] = src[0] + src[1] + src[2] + src[3];
+    
+    // k=1: x0 - jx1 - x2 + jx3
+    // (j를 곱한다는 건 (x, y) -> (-y, x) 회전)
+    dst[1] = src[0] + vec2(src[1].y, -src[1].x) - src[2] + vec2(-src[3].y, src[3].x);
+    
+    // k=2: x0 - x1 + x2 - x3
+    dst[2] = src[0] - src[1] + src[2] - src[3];
+    
+    // k=3: x0 + jx1 - x2 - jx3
+    dst[3] = src[0] + vec2(-src[1].y, src[1].x) - src[2] + vec2(src[3].y, -src[3].x);
+}
+
+// --------------------------------------------------------
+// 4-Point IDFT (Inverse)
+// 부호가 반대이고 1/N scaling이 들어감
+// --------------------------------------------------------
+void IDFT_4(in vec2 src[4], out vec2 dst[4]) {
+    // k=0: sum
+    dst[0] = src[0] + src[1] + src[2] + src[3];
+    
+    // k=1: x0 + jx1 - x2 - jx3
+    dst[1] = src[0] + vec2(-src[1].y, src[1].x) - src[2] + vec2(src[3].y, -src[3].x);
+    
+    // k=2: x0 - x1 + x2 - x3
+    dst[2] = src[0] - src[1] + src[2] - src[3];
+    
+    // k=3: x0 - jx1 - x2 + jx3
+    dst[3] = src[0] + vec2(src[1].y, -src[1].x) - src[2] + vec2(-src[3].y, src[3].x);
+
+    // Scaling (1/4)
+    for(int i=0; i<4; i++) dst[i] *= 0.25;
+}
+
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 1. [Load] Real Data -> Complex Registers
+    // 메모리 접근 1회 (Coalesced)
+    ComplexBlock data;
+    vec3 originRGB[16];
+
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_src, blkPos + ivec2(x, y)).rgb;
+            originRGB[y*4+x] = p;
+            // RGB -> Luma (Y)
+            float luma = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+            data.c[y][x] = vec2(luma, 0.0); // 실수부만 존재
+        }
+    }
+
+    // 2. [Row Transform] 가로 방향 1D DFT
+    for (int y = 0; y < 4; y++) {
+        vec2 rowIn[4] = { data.c[y][0], data.c[y][1], data.c[y][2], data.c[y][3] };
+        vec2 rowOut[4];
+        DFT_4(rowIn, rowOut);
+        data.c[y][0] = rowOut[0]; data.c[y][1] = rowOut[1];
+        data.c[y][2] = rowOut[2]; data.c[y][3] = rowOut[3];
+    }
+
+    // 3. [Col Transform] 세로 방향 1D DFT -> 2D DFT 완료
+    for (int x = 0; x < 4; x++) {
+        vec2 colIn[4] = { data.c[0][x], data.c[1][x], data.c[2][x], data.c[3][x] };
+        vec2 colOut[4];
+        DFT_4(colIn, colOut);
+        data.c[0][x] = colOut[0]; data.c[1][x] = colOut[1];
+        data.c[2][x] = colOut[2]; data.c[3][x] = colOut[3];
+    }
+
+    // 4. [Embedding] 워터마크 삽입
+    // DFT는 (0,0)이 DC, 나머지가 AC 성분
+    // 대칭성을 고려해야 하지만, 4x4 복원 시 실수부만 취하면 큰 문제 없음
+    // 타겟: (1, 2) 같은 중간 주파수 Magnitude 조작
+    
+    if (Embed == 1) {
+        uint stride = gl_NumWorkGroups.x * 8; 
+        uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
+
+        float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
+        float alpha = Strength * 0.0199;
+        //float alpha = Strength * 0.5;
+
+        // Target (1,2)
+        vec2 val = data.c[1][2];
+        float mag = length(val);
+        
+        // Hybrid Embedding Logic
+        // ★ [수정된 코드]
+        if (mag < 1e-5) {
+            // 값이 0일 때: 크기가 아니라 '좌표'로 부호를 심음
+            // w=1 -> (+delta, 0), w=-1 -> (-delta, 0)
+            data.c[1][2] = vec2(alpha * 0.25 * w, 0.0);
+        } else {
+            // 값이 있을 때: 기존대로 크기 증폭
+            mag *= (1.0 + alpha * w);
+            data.c[1][2] = normalize(val) * mag;
+        }
+        
+        // ★ DFT 대칭성 유지 (Conjugate Symmetry) - 중요!
+        // (1,2)의 짝꿍은 (4-1, 4-2) = (3,2) -> 인덱스 범위 주의
+        // 4x4 DFT에서 실수 출력을 위해선 대칭점에 켤레복소수 처리를 해줘야 안전함
+        // 하지만 IDFT 후 실수부만 취할거면 생략해도 됨 (노이즈로 처리됨)
+    }
+
+    // 5. [Inverse Row Transform] 가로 방향 IDFT
+    for (int y = 0; y < 4; y++) {
+        vec2 rowIn[4] = { data.c[y][0], data.c[y][1], data.c[y][2], data.c[y][3] };
+        vec2 rowOut[4];
+        IDFT_4(rowIn, rowOut);
+        data.c[y][0] = rowOut[0]; data.c[y][1] = rowOut[1];
+        data.c[y][2] = rowOut[2]; data.c[y][3] = rowOut[3];
+    }
+
+    // 6. [Inverse Col Transform] 세로 방향 IDFT
+    for (int x = 0; x < 4; x++) {
+        vec2 colIn[4] = { data.c[0][x], data.c[1][x], data.c[2][x], data.c[3][x] };
+        vec2 colOut[4];
+        IDFT_4(colIn, colOut);
+        data.c[0][x] = colOut[0]; data.c[1][x] = colOut[1];
+        data.c[2][x] = colOut[2]; data.c[3][x] = colOut[3];
+    }
+
+    // 7. [Restore] & Store
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            float newY = data.c[y][x].x; // 실수부만 취함 (허수부는 0에 가까워야 정상)
+            
+            vec3 srcRGB = originRGB[y*4+x];
+            float oldY = 0.299*srcRGB.r + 0.587*srcRGB.g + 0.114*srcRGB.b;
+            
+            vec3 finalRGB;
+            if (oldY > 0.001) finalRGB = srcRGB * (newY / oldY);
+            else              finalRGB = srcRGB + (newY - oldY);
+            
+            imageStore(img_dst, blkPos + ivec2(x, y), vec4(finalRGB, 1.0));
+        }
+    }
+}

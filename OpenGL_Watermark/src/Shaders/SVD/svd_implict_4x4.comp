@@ -123,10 +123,12 @@ void main() {
         float maxVal = sigma[0];
         for(int i=1; i<4; i++) if(sigma[i] > maxVal) { maxVal = sigma[i]; maxIdx = i; }
 
-        uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+        uint stride = gl_NumWorkGroups.x * 8; 
+        uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
+
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
         
-        float newSigma = maxVal * (1.0 + Strength * 0.01 * w);
+        float newSigma = maxVal * (1.0 + Strength * 0.0002 * w);
         
         // 0으로 나누기 방지
         if (maxVal > 1e-6) ratio[maxIdx] = newSigma / maxVal;

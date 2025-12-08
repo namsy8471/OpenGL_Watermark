@@ -101,7 +101,7 @@ void main()
                 float val = finalDwtCoeffRGB.r; // R 채널만 예시로 사용 (흑백이면 다 같음)
                 
                 // ★ [핵심] 하이브리드 로직 적용 (Additive + Multiplicative)
-                float alpha = EmbeddingStrength * 30; // 강도 스케일링
+                float alpha = EmbeddingStrength * 0.245; // 강도 스케일링
 
                 // 값이 너무 작으면(0이면) 더하기, 크면 곱하기
                 if (abs(val) < 1e-5) {

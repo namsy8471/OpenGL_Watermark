@@ -1,0 +1,82 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_original; // 원본
+layout(rgba32f, binding = 1) readonly uniform image2D img_marked;   // 공격받은 이미지
+
+// 추출된 비트를 저장할 버퍼
+layout(std430, binding = 2) buffer ExtractedBits { uint out_bits[]; };
+
+uniform uint Width, Height;
+uniform uint BitSize;
+
+struct Mat4 { float m[4][4]; };
+
+// DCT 행렬 곱셈 (최적화 버전과 동일)
+void MatMul(in Mat4 A, in Mat4 B, out Mat4 C) {
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            C.m[r][c] = A.m[r][0] * B.m[0][c] + A.m[r][1] * B.m[1][c] +
+                        A.m[r][2] * B.m[2][c] + A.m[r][3] * B.m[3][c];
+        }
+    }
+}
+void Transpose(in Mat4 A, out Mat4 T) {
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) T.m[i][j] = A.m[j][i];
+}
+
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 1. 원본(Y_org)과 마킹된(Y_mark) 블록 로드
+    Mat4 Y_org, Y_mark;
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p1 = imageLoad(img_original, blkPos + ivec2(x, y)).rgb;
+            vec3 p2 = imageLoad(img_marked, blkPos + ivec2(x, y)).rgb;
+            Y_org.m[y][x]  = 0.299*p1.r + 0.587*p1.g + 0.114*p1.b;
+            Y_mark.m[y][x] = 0.299*p2.r + 0.587*p2.g + 0.114*p2.b;
+        }
+    }
+
+    // 2. DCT 수행 (T * Y * T')
+    Mat4 T;
+    float a = 0.5; float b = 0.65328148; float c = 0.27059805;
+    T.m[0][0]=a; T.m[0][1]=a;  T.m[0][2]=a;   T.m[0][3]=a;
+    T.m[1][0]=b; T.m[1][1]=c;  T.m[1][2]=-c;  T.m[1][3]=-b;
+    T.m[2][0]=a; T.m[2][1]=-a; T.m[2][2]=-a;  T.m[2][3]=a;
+    T.m[3][0]=c; T.m[3][1]=-b; T.m[3][2]=b;   T.m[3][3]=-c;
+
+    Mat4 T_t; Transpose(T, T_t);
+    Mat4 Temp, Coeff_org, Coeff_mark;
+
+    // 원본 변환
+    MatMul(T, Y_org, Temp);  MatMul(Temp, T_t, Coeff_org);
+    // 마킹된 이미지 변환
+    MatMul(T, Y_mark, Temp); MatMul(Temp, T_t, Coeff_mark);
+
+    // 3. 비트 추출 (타겟: 1, 2)
+    // 타겟: m[1][2]
+    float val_org = Coeff_org.m[1][2];
+    float diff = Coeff_mark.m[1][2] - val_org;
+    
+    uint detectedBit = 0;
+    
+    // 0일 때(Additive)와 아닐 때(Multiplicative) 분기 처리
+    if (abs(val_org) < 1e-5) {
+        detectedBit = (diff >= 0.0) ? 1 : 0;
+    } else {
+        detectedBit = (diff * sign(val_org) >= 0.0) ? 1 : 0;
+    }
+
+    // 4. 저장
+    uint stride = gl_NumWorkGroups.x * 8; 
+    uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
+    
+    // Atomic 쓰면 느리므로, 각 블록이 '투표'하는 방식이 아니라 
+    // 여기서는 단순하게 해당 블록의 비트를 덮어씌움 (동일 비트가 반복 삽입되었으므로)
+    // 정확한 BER 측정을 위해선 CPU에서 취합하거나, 평균을 내야 하지만
+    // 일단 가장 단순하게 1:1 매핑으로 저장
+    out_bits[bitIdx] = detectedBit; 
+}

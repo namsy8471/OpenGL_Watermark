@@ -65,11 +65,12 @@ void main() {
     MatMul(Temp, T_trans, Coeffs);
 
     if (Embed == 1) {
-        uint bitIdx = (gl_GlobalInvocationID.y * gl_NumWorkGroups.x + gl_GlobalInvocationID.x) % BitSize;
+        uint stride = gl_NumWorkGroups.x * 8; 
+        uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
     
         // 비트 값 (-1.0 or 1.0)
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
-        float alpha = Strength * 0.01;
+        float alpha = Strength * 0.00051;
 
         // ★ Spread Spectrum: 3개의 계수에 분산 삽입
         // 타겟: (1,2), (2,1), (2,2) -> 중간 주파수 대역

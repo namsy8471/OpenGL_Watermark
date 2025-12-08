@@ -21,6 +21,7 @@
 #include <sstream>
 #include <cmath>
 #include <filesystem>
+#include <iomanip>
 
 using uint = unsigned int;
 
@@ -60,12 +61,32 @@ struct ImageMetrics {
 struct BenchmarkResult {
     std::string algoName;
     std::string resolution;
-    float alpha;
+    double alpha;
     float gpuTimeMs;
     float cpuTimeMs;
     double psnr;
     double ssim; // Added
+    float ber;
 };
+
+// [수정된 함수] 유효 비트 수(count)만큼만 비교
+float CalculateBER(const std::vector<uint>& original, const std::vector<uint>& extracted, size_t count) {
+    if (original.empty() || extracted.empty()) return 1.0f;
+
+    size_t errorCount = 0;
+    // 범위 초과 방지
+    size_t validCount = std::min({ count, original.size(), extracted.size() });
+
+    for (size_t i = 0; i < validCount; ++i) {
+        uint orgBit = (original[i] > 0) ? 1 : 0;
+        uint extBit = (extracted[i] > 0) ? 1 : 0;
+
+        if (orgBit != extBit) {
+            errorCount++;
+        }
+    }
+    return static_cast<float>(errorCount) / static_cast<float>(validCount);
+}
 
 // [Senior Guide] SSIM 계산 함수
 // 메모리 접근 패턴(Cache Locality)을 고려해야 하지만, 이미지 전체를 스캔해야 하므로
@@ -220,12 +241,13 @@ GLuint loadComputeShader(const char* computePath) {
 void SaveResultsToCSV(const std::vector<BenchmarkResult>& results, const char* filename)
 {
     std::ofstream file(filename);
-    file << "Iteration,Algorithm,Resolution,GPU Time (ms),CPU Time (ms),PSNR (dB),SSIM\n";
+    file << std::fixed << std::setprecision(3);
+    file << "Iteration,Algorithm,Resolution,Alpha,GPU Time (ms),CPU Time (ms),PSNR (dB),SSIM,BER\n";
 
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& res = results[i];
         // 알고리즘 4개 (DCT, DWT, SVD, DFT)
-        int iter = static_cast<int>(i / 4) + 1;
+        int iter = static_cast<int>(i) + 1;
         file << iter << "," 
     		<< res.algoName << ","
     		<< res.resolution << ","
@@ -233,7 +255,8 @@ void SaveResultsToCSV(const std::vector<BenchmarkResult>& results, const char* f
             << res.gpuTimeMs << "," 
     		<< res.cpuTimeMs << ","
     		<< res.psnr << ","
-    		<< res.ssim << "\n";
+    		<< res.ssim << ","
+    		<< res.ber << "\n";
     }
     file.close();
     std::cout << "Results saved to " << filename << std::endl;
@@ -651,6 +674,56 @@ void Run_Optimized_OneShot_Pipeline(
 }
 
 // -----------------------------------------------------------------------------
+// ★ Extraction Pipeline (추출용)
+// -----------------------------------------------------------------------------
+// 공격받은 이미지(Marked)와 원본(Original)을 넣고 비트를 추출함
+void Run_Extraction_Pipeline(GLuint progExtract, GLuint texOriginal, GLuint texMarked, GLuint bufExtracted, uint width, uint height, uint bitSize)
+{
+    // Dispatch Size: 4x4 Block Based -> 8x8 Thread Group -> 32x32 Pixels per Group
+    const uint numGroupsX = (width + 31) / 32;
+    const uint numGroupsY = (height + 31) / 32;
+
+    glUseProgram(progExtract);
+    glUniform1ui(glGetUniformLocation(progExtract, "Width"), width);
+    glUniform1ui(glGetUniformLocation(progExtract, "Height"), height);
+    glUniform1ui(glGetUniformLocation(progExtract, "BitSize"), bitSize);
+
+    // Binding 0: Original, 1: Marked
+    glBindImageTexture(0, texOriginal, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindImageTexture(1, texMarked, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+
+    // Binding 2: Extracted Bits Buffer
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bufExtracted);
+
+    glDispatchCompute(numGroupsX, numGroupsY, 1);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT); // CPU Read를 위한 배리어
+}
+
+// Legacy (8x8 Block) 전용 추출 파이프라인
+void Run_Legacy_Extraction(GLuint progExtract, GLuint texOriginal, GLuint texMarked, GLuint bufExtracted, uint width, uint height, uint bitSize)
+{
+    // Legacy는 8x8 픽셀이 1개 그룹
+    const uint numGroupsX = (width + 7) / 8;
+    const uint numGroupsY = (height + 7) / 8;
+
+    glUseProgram(progExtract);
+    glUniform1ui(glGetUniformLocation(progExtract, "Width"), width);
+    glUniform1ui(glGetUniformLocation(progExtract, "Height"), height);
+    glUniform1ui(glGetUniformLocation(progExtract, "BitSize"), bitSize);
+
+    // Legacy 추출은 Spread Spectrum이라 'CoefficientsToUse'가 필요함 (기본 10 설정)
+    glUniform1ui(glGetUniformLocation(progExtract, "CoefficientsToUse"), 10);
+
+    glBindImageTexture(0, texOriginal, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindImageTexture(1, texMarked, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bufExtracted);
+    // (패턴 버퍼 바인딩은 호출부에서 미리 해줌)
+
+    glDispatchCompute(numGroupsX, numGroupsY, 1);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+}
+
+// -----------------------------------------------------------------------------
 // 3. 전역 리소스 관리자
 // -----------------------------------------------------------------------------
 struct ResourceManager {
@@ -671,7 +744,9 @@ struct ResourceManager {
 
 
     GLuint buf_Bitstream = 0, buf_Pattern = 0;
+    GLuint buf_ExtractedBits = 0;
     uint numBlocks = 0;
+    uint numBlocks4x4 = 0; // for optimized/extraction
 
     void Release() {
         // (기존 삭제 코드 유지 + DFT 추가)
@@ -768,8 +843,10 @@ struct ResourceManager {
 
         // Buffers
         numBlocks = ((width + 7) / 8) * ((height + 7) / 8);
-        std::vector<uint> bitstreamData(numBlocks);
-        for (size_t i = 0; i < numBlocks; ++i) bitstreamData[i] = (rand() % 2); // Random bits
+        numBlocks4x4 = ((width + 3) / 4) * ((height + 3) / 4); // For One-Shot & Extraction
+
+        std::vector<uint> bitstreamData(numBlocks4x4);
+        for (size_t i = 0; i < numBlocks4x4; ++i) bitstreamData[i] = (rand() % 2); // Random bits
 
         std::vector<float> patternData(numBlocks * coeffsToUse);
         for (size_t i = 0; i < patternData.size(); ++i) patternData[i] = ((rand() % 2) == 0) ? 1.0f : -1.0f;
@@ -781,6 +858,12 @@ struct ResourceManager {
         glGenBuffers(1, &buf_Pattern);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf_Pattern);
         glBufferData(GL_SHADER_STORAGE_BUFFER, patternData.size() * sizeof(float), patternData.data(), GL_STATIC_READ);
+
+        // ★ Extracted Bits Buffer (Readback용)
+        glGenBuffers(1, &buf_ExtractedBits);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf_ExtractedBits);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, bitstreamData.size() * sizeof(uint), nullptr, GL_DYNAMIC_READ); // Empty init
+    
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
 };
@@ -836,6 +919,8 @@ int main()
 	GLuint dftReorderProg = loadComputeShader("DFT/dft_reorder.comp");
 	GLuint debugProbeProg = loadComputeShader("DFT/debug_probe.comp");
 
+    GLuint dftOptProg = loadComputeShader("DFT/dft_opt_4x4.comp");
+
 	// SVD Shaders
     GLuint svd_progs[8];
     svd_progs[0] = loadComputeShader("SVD/svd_01_rgb_to_y.comp");
@@ -849,6 +934,15 @@ int main()
 
 	GLuint svd4x4Prog = loadComputeShader("SVD/svd_block_4x4.comp");
 	GLuint svdImplictProg = loadComputeShader("SVD/svd_implict_4x4.comp");
+
+    // ★ [Load Extraction Shaders]
+    GLuint extractDctProg = loadComputeShader("Extraction/extract_dct.comp");
+    GLuint extractDwtProg = loadComputeShader("Extraction/extract_dwt.comp");
+    GLuint extractSvdProg = loadComputeShader("Extraction/extract_svd.comp");
+    GLuint extractDftProg = loadComputeShader("Extraction/extract_dft.comp");
+
+    GLuint extractDctSSProg = loadComputeShader("Extraction/extract_dct_ss.comp");
+    GLuint extractDwtSSProg = loadComputeShader("Extraction/extract_dwt_ss.comp");
 
     // Resource Manager
     ResourceManager resMgr;
@@ -875,8 +969,9 @@ int main()
 
     // ★ Alpha Sweep 전용 변수
     bool g_RunAlphaSweep = false;
-    float g_SweepCurrentAlpha = 0.0f;
+    double g_SweepCurrentAlpha = 0.0f;
     int g_SweepAlgoIndex = 0; // 0~6 (모든 알고리즘 순회)
+    int g_SweepResIndex = 0; // 0: FHD, 1: 4K
 
     std::vector<BenchmarkResult> g_Results;
     GpuTimer gpuTimer;
@@ -907,8 +1002,9 @@ int main()
         ImGui::SameLine();
         ImGui::RadioButton("SVD (Implicit)", &g_AlgorithmChoice, 3);
     	
+        ImGui::RadioButton("DFT", &g_AlgorithmChoice, 4); // Added
     	ImGui::SameLine();
-        ImGui::RadioButton("DFT (New)", &g_AlgorithmChoice, 4); // Added
+        ImGui::RadioButton("DFT (Optimized 1-Pass)", &g_AlgorithmChoice, 7); // New
 
         ImGui::Checkbox("Embed", &g_EnableEmbed);
         ImGui::SliderFloat("Strength", &g_EmbeddingStrength, 0.0f, 50.0f);
@@ -941,7 +1037,7 @@ int main()
         case 1: previewTex = resMgr.tex_DWT_Final; break;
         case 2: case 3: previewTex = resMgr.tex_SVD_Final; break;
         case 4: previewTex = resMgr.tex_DFT_Final; break;
-        case 5: case 6: previewTex = resMgr.tex_Opt_Final; break; // Optimized Output
+        case 5: case 6: case 7: previewTex = resMgr.tex_Opt_Final; break; // Optimized Output
         }
 
         ImGui::Begin("Preview");
@@ -963,11 +1059,11 @@ int main()
             // 0:DCT_Legacy, 1:DWT_Legacy, 2:SVD_Block, 3:SVD_Impl, 4:DFT, 5:DCT_Opt, 6:DWT_Opt
             std::string algoNames[] = {
                 "DCT (Legacy)", "DWT (Legacy)", "SVD (Block)", "SVD (Implicit)",
-                "DFT", "DCT (Optimized)", "DWT (Optimized)"
+                "DFT", "DCT (Optimized)", "DWT (Optimized)", "DFT (Optimized)"
             };
 
-            // i loops through all 7 algorithms
-            for (int i = 0; i < 7; ++i) {
+            // i loops through all 8 algorithms
+            for (int i = 0; i < 8; ++i) {
                 cpuTimer.Start();
                 gpuTimer.Start();
 
@@ -998,6 +1094,7 @@ int main()
                 );
                 else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
                 else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, res.w, res.h, g_EnableEmbed, g_EmbeddingStrength);
+
 
                 gpuTimer.Stop();
                 float cpuTime = cpuTimer.GetTimeMs();
@@ -1032,91 +1129,161 @@ int main()
         // ... 기존 g_RunBenchmark 블록 끝난 뒤 ...
 
         else if (g_RunAlphaSweep) {
-            // 1. 현재 해상도 고정 (현재 창 크기나 설정된 해상도 사용)
-            // 테스트를 위해 FHD(1920x1080) 권장. 필요시 리사이즈 호출.
+
+            // 1. 현재 해상도 설정 및 리소스 초기화 (해상도가 바뀌거나 첫 시작일 때)
+            Resolution currentRes = resolutions[g_SweepResIndex];
+
+            // 첫 프레임(Alpha=0)에서만 리사이즈 수행 (매번 하면 느려짐)
             if (g_SweepCurrentAlpha == 0.0f && g_SweepAlgoIndex == 0) {
-                resMgr.Resize(1920, 1080, coeffsToUse);
-                currentWidth = 1920; currentHeight = 1080;
+                if (currentWidth != currentRes.w || currentHeight != currentRes.h) {
+                    std::cout << "[System] Resizing to " << currentRes.name << " (" << currentRes.w << "x" << currentRes.h << ")..." << std::endl;
+                    resMgr.Resize(currentRes.w, currentRes.h, coeffsToUse);
+                    currentWidth = currentRes.w;
+                    currentHeight = currentRes.h;
+                    glFinish(); // 메모리 할당 대기
+                }
             }
+            
 
             // 2. 셰이더에 보낼 Strength 계산
             // 셰이더: alpha = Strength * 0.01 
             // 목표: alpha (0~1)
             // 따라서: Strength = alpha * 100.0
-            float currentStrength = g_SweepCurrentAlpha * 100.0f;
+            float currentStrength = g_SweepCurrentAlpha * 100.0;
 
             std::string algoNames[] = {
                 "DCT (Legacy)", "DWT (Legacy)", "SVD (Block)", "SVD (Implicit)",
-                "DFT", "DCT (Optimized)", "DWT (Optimized)"
+				"DFT", "DCT (Optimized)", "DWT (Optimized)", "DFT (Optimized)"
             };
 
             cpuTimer.Start();
             gpuTimer.Start();
 
-            // 3. 알고리즘 실행
+            // 2. Embedding
+            // ★ [수정] 평균을 내기 위한 반복 횟수 설정 (30~50회 추천)
+            // 횟수가 많을수록 그래프가 매끄러워지지만, 전체 측정 시간이 길어집니다.
+            const int BENCHMARK_SAMPLES = 50;
             int i = g_SweepAlgoIndex;
-            if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4,
-                resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final,
-                resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
-                g_EnableEmbed, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-            else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4,
-                resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final,
-                resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight,
-                g_EnableEmbed, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-            else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream,
-                currentWidth, currentHeight, true, currentStrength);
-            else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, 
-                resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
-            else if (i == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg,
-                dftEmbedProg, dftCropProg, debugProbeProg,
-                resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, 
-                resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
-            else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
-            else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
 
-            gpuTimer.Stop();
+            // ★ [핵심] 반복 루프 추가
+            for (int k = 0; k < BENCHMARK_SAMPLES; ++k)
+            {
+                
+                if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4, resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4, resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                else if (i == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                else if (i == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                else if (i == 7) Run_Optimized_OneShot_Pipeline(dftOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+            }
+
+            gpuTimer.Stop(); // 타이머 종료 (이제 50회분의 시간이 기록됨)
+            // 3. Extraction (추출)
+            // Legacy(0,1)는 Spread Spectrum이라 정확한 Extraction을 위해선 전용 셰이더가 필요하나, 
+            // 여기서는 최적화 셰이더와 동일한 논리로 동작하는 기본 추출기를 사용하여 BER 측정 시도.
+            GLuint finalTex = 0;
+            // 텍스처 ID 매핑 (반복문 밖으로 뺌)
+            if (i == 0) finalTex = resMgr.tex_Final; else if (i == 1) finalTex = resMgr.tex_DWT_Final; else if (i == 2 || i == 3) finalTex = resMgr.tex_SVD_Final; else if (i == 4) finalTex = resMgr.tex_DFT_Final; else finalTex = resMgr.tex_Opt_Final;
+
+            if (i == 0)
+            {
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern); // 패턴 버퍼 필수
+                Run_Legacy_Extraction(extractDctSSProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks);
+            }
+            else if (i == 1)
+            {
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern); // 패턴 버퍼 필수
+                Run_Legacy_Extraction(extractDwtSSProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks);
+            }
+                
+            else if(i == 5) { // DCT
+                Run_Extraction_Pipeline(extractDctProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+            }
+            else if (i == 6) { // DWT
+                Run_Extraction_Pipeline(extractDwtProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+            }
+            else if (i == 2 || i == 3) { // SVD
+                Run_Extraction_Pipeline(extractSvdProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+            }
+            else if (i == 4 || i == 7) { // DFT
+                Run_Extraction_Pipeline(extractDftProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+            }
+
+           
             glFinish(); // 확실한 동기화
 
-            // 4. PSNR 측정 (매 프레임 CPU Readback 필수)
-            GLuint outTex = (i == 0) ? resMgr.tex_Final : (i == 1) ? resMgr.tex_DWT_Final : (i == 2 || i == 3) ? resMgr.tex_SVD_Final : (i == 4) ? resMgr.tex_DFT_Final : resMgr.tex_Opt_Final;
-
-            std::vector<unsigned char> srcPx(static_cast<size_t>(currentWidth) * currentHeight * 4);
-            std::vector<unsigned char> dstPx(static_cast<size_t>(currentWidth) * currentHeight * 4);
-
+            // 4. Readback & Metrics
+            std::vector<unsigned char> srcPx(static_cast<size_t>(currentWidth)* currentHeight * 4);
+            std::vector<unsigned char> dstPx(static_cast<size_t>(currentWidth)* currentHeight * 4);
             glBindTexture(GL_TEXTURE_2D, resMgr.tex_Source);
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, srcPx.data());
-            glBindTexture(GL_TEXTURE_2D, outTex);
+            glBindTexture(GL_TEXTURE_2D, finalTex);
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dstPx.data());
-            glBindTexture(GL_TEXTURE_2D, 0);
 
+            // ★ Read Extracted Bits
+            std::vector<uint> orgBits(resMgr.numBlocks4x4);
+            std::vector<uint> extBits(resMgr.numBlocks4x4);
+
+            // Read Original Bits (CPU Copy is faster than VRAM readback if static, but let's read buffer for correctness)
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, resMgr.buf_Bitstream);
+            glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, orgBits.size() * sizeof(uint), orgBits.data());
+
+            // Read Extracted Bits
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, resMgr.buf_ExtractedBits);
+            glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, extBits.size() * sizeof(uint), extBits.data());
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+            // Calc
             ImageMetrics m = CalculateMetrics(srcPx, dstPx, currentWidth, currentHeight);
+            // ★ [핵심] 알고리즘별 유효 비트 수 설정
+            size_t validBits = resMgr.numBlocks4x4; // 기본 (최적화 버전)
+            if (i == 0 || i == 1) validBits = resMgr.numBlocks; // Legacy는 8x8 개수만큼만 유효
+
+            // 수정된 함수 호출
+            float ber = CalculateBER(orgBits, extBits, validBits);
+            float avgGpuTime = gpuTimer.GetTimeMs() / static_cast<float>(BENCHMARK_SAMPLES);
+            float avgCpuTime = cpuTimer.GetTimeMs() / static_cast<float>(BENCHMARK_SAMPLES);
 
             // 5. 결과 저장
             g_Results.push_back({
                 algoNames[i],
-                "FHD",
+                currentRes.name,
                 g_SweepCurrentAlpha, // 0.0 ~ 1.0
-                gpuTimer.GetTimeMs(),
-                cpuTimer.GetTimeMs(),
+                avgGpuTime,
+                avgCpuTime,
                 m.psnr,
-                m.ssim
+                m.ssim,
+                ber
                 });
 
             // 진행 상황 로그 출력 (너무 많으면 느려지니 0.1단위만 출력해도 됨)
+            std::cout << std::fixed << std::setprecision(3);
             std::cout << "Algo: " << i << " | Alpha: " << g_SweepCurrentAlpha << " | PSNR: " << m.psnr << '\n';
 
             // 6. 다음 단계로 이동
-            g_SweepCurrentAlpha += 0.001f; // 0.001 단위 증가
+            g_SweepCurrentAlpha += 0.05f; // 0.001 단위 증가
 
             if (g_SweepCurrentAlpha > 1.0001f) { // 부동소수점 오차 고려
                 g_SweepCurrentAlpha = 0.0f;
                 g_SweepAlgoIndex++; // 다음 알고리즘으로
 
-                // 모든 알고리즘 완료?
-                if (g_SweepAlgoIndex >= 7) {
-                    g_RunAlphaSweep = false;
-                    SaveResultsToCSV(g_Results, "Alpha_Sweep_Results.csv");
-                    std::cout << "[System] Alpha Sweep Completed!" << std::endl;
+                if (g_SweepAlgoIndex >= 8) {
+                    g_SweepAlgoIndex = 0;
+                    g_SweepResIndex++; // ★ 다음 해상도 (FHD -> 4K)
+
+                    // 모든 해상도 완료?
+                    if (g_SweepResIndex >= 1) {
+                        g_RunAlphaSweep = false;
+                        g_SweepResIndex = 0; // 초기화
+                        SaveResultsToCSV(g_Results, "Alpha_Sweep_Results_Ultimate.csv");
+                        std::cout << "[System] All Benchmarks Completed!" << std::endl;
+
+                        // FHD로 복귀 (UI용)
+                        resMgr.Resize(1920, 1080, coeffsToUse);
+                        currentWidth = 1920; currentHeight = 1080;
+                    }
                 }
             }
         }
@@ -1170,7 +1337,11 @@ int main()
                 Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final,
                     resMgr.buf_Bitstream, currentWidth, currentHeight, g_EnableEmbed, g_EmbeddingStrength);
             }
-
+            
+			else if (g_AlgorithmChoice == 7) { // DFT Optimized
+                Run_Optimized_OneShot_Pipeline(dftOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final,
+                    resMgr.buf_Bitstream, currentWidth, currentHeight, g_EnableEmbed, g_EmbeddingStrength);
+            }
             
         }
 

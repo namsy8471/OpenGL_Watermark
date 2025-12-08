@@ -52,5 +52,12 @@
     <None Include="src\Shaders\SVD\svd_implict_4x4.comp" />
     <None Include="src\Shaders\DWT\dwt_opt_4x4.comp" />
     <None Include="src\Shaders\DCT\dct_opt_4x4.comp" />
+    <None Include="src\Shaders\DFT\dft_opt_4x4.comp" />
+    <None Include="src\Shaders\Extraction\extract_dct.comp" />
+    <None Include="src\Shaders\Extraction\extract_dwt.comp" />
+    <None Include="src\Shaders\Extraction\extract_svd.comp" />
+    <None Include="src\Shaders\Extraction\extract_dft.comp" />
+    <None Include="src\Shaders\Extraction\extract_dct_ss.comp" />
+    <None Include="src\Shaders\Extraction\extract_dwt_ss.comp" />
   </ItemGroup>
 </Project>

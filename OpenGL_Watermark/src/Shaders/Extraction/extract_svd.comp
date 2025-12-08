@@ -1,0 +1,116 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// 입력
+layout(rgba32f, binding = 0) readonly uniform image2D img_original;
+layout(rgba32f, binding = 1) readonly uniform image2D img_marked;
+
+// 출력
+layout(std430, binding = 2) buffer ExtractedBits { uint out_bits[]; };
+
+uniform uint Width, Height;
+uniform uint BitSize;
+
+// ------------------------------------------------------------------
+// [SVD 수학 함수] (이미지 로드 로직 제거됨)
+// ------------------------------------------------------------------
+struct Mat4 { float m[4][4]; };
+
+void LoadIdentity(out Mat4 M) {
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) M.m[i][j] = (i==j)? 1.0 : 0.0;
+}
+
+void SymJacobiRotate(inout Mat4 A, inout Mat4 V, int p, int q) {
+    if (abs(A.m[p][q]) < 1e-6) return;
+    float d = (A.m[q][q] - A.m[p][p]) / (2.0 * A.m[p][q]);
+    float t = sign(d) / (abs(d) + sqrt(d*d + 1.0));
+    float c = 1.0 / sqrt(t*t + 1.0);
+    float s = c * t;
+    float App = A.m[p][p]; float Aqq = A.m[q][q]; float Apq = A.m[p][q];
+    A.m[p][p] = c*c*App - 2.0*s*c*Apq + s*s*Aqq;
+    A.m[q][q] = s*s*App + 2.0*s*c*Apq + c*c*Aqq;
+    A.m[p][q] = 0.0; A.m[q][p] = 0.0;
+    for (int i = 0; i < 4; i++) {
+        if (i != p && i != q) {
+            float Api = A.m[p][i]; float Aqi = A.m[q][i];
+            float new_Api = c*Api - s*Aqi; float new_Aqi = s*Api + c*Aqi;
+            A.m[p][i] = new_Api; A.m[i][p] = new_Api;
+            A.m[q][i] = new_Aqi; A.m[i][q] = new_Aqi;
+        }
+    }
+    for (int i = 0; i < 4; i++) {
+        float Vip = V.m[i][p]; float Viq = V.m[i][q];
+        V.m[i][p] = c * Vip - s * Viq; V.m[i][q] = s * Vip + c * Viq;
+    }
+}
+
+// 이미지 없이 '데이터 배열(Y)'만 받아서 최대 특이값을 계산하는 함수
+float CalculateMaxSigma(float Y[16]) {
+    // 1. Compute AtA
+    Mat4 AtA;
+    for(int i=0; i<4; i++) {
+        for(int j=i; j<4; j++) {
+            float sum = 0.0;
+            for(int k=0; k<4; k++) sum += Y[k*4 + i] * Y[k*4 + j];
+            AtA.m[i][j] = sum; AtA.m[j][i] = sum;
+        }
+    }
+
+    // 2. SVD (Jacobi)
+    Mat4 V; LoadIdentity(V);
+    for(int iter=0; iter<5; iter++) { // 5회 반복
+        SymJacobiRotate(AtA, V, 0, 1); SymJacobiRotate(AtA, V, 0, 2); SymJacobiRotate(AtA, V, 0, 3);
+        SymJacobiRotate(AtA, V, 1, 2); SymJacobiRotate(AtA, V, 1, 3); SymJacobiRotate(AtA, V, 2, 3);
+    }
+
+    // 3. Find Max Sigma
+    float maxVal = sqrt(max(AtA.m[0][0], 0.0));
+    for(int i=1; i<4; i++) {
+        float s = sqrt(max(AtA.m[i][i], 0.0));
+        if(s > maxVal) maxVal = s;
+    }
+    return maxVal;
+}
+
+// ------------------------------------------------------------------
+// [메인]
+// ------------------------------------------------------------------
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // 1. 원본 이미지 로드 -> Y_org 배열 생성
+    float Y_org[16];
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_original, blkPos + ivec2(x, y)).rgb;
+            Y_org[y*4 + x] = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+        }
+    }
+    // 계산 함수 호출 (이미지 전달 X)
+    float sigma_org = CalculateMaxSigma(Y_org);
+
+
+    // 2. 마킹된 이미지 로드 -> Y_mark 배열 생성
+    float Y_mark[16];
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_marked, blkPos + ivec2(x, y)).rgb;
+            Y_mark[y*4 + x] = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+        }
+    }
+    // 계산 함수 호출 (이미지 전달 X)
+    float sigma_mark = CalculateMaxSigma(Y_mark);
+
+
+    // 3. 비교 및 판별
+    // sigma_mark > sigma_org -> 1
+    // sigma_mark < sigma_org -> 0
+    float diff = sigma_mark - sigma_org;
+    uint detectedBit = (diff >= 0.0) ? 1 : 0;
+
+    // 4. 저장
+    uint stride = gl_NumWorkGroups.x * 8; 
+    uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
+    out_bits[bitIdx] = detectedBit;
+}

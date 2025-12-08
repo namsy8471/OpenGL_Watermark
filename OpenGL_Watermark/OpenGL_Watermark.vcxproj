@@ -154,6 +154,7 @@
     <None Include="src\Shaders\DCT\idct_pass1_cols.comp" />
     <None Include="src\Shaders\DCT\idct_pass2_rows.comp" />
     <None Include="src\Shaders\DFT\debug_probe.comp" />
+    <None Include="src\Shaders\DFT\dft_opt_4x4.comp" />
     <None Include="src\Shaders\DFT\dft_postprocess_crop.comp" />
     <None Include="src\Shaders\DFT\dft_preprocess_pad.comp" />
     <None Include="src\Shaders\DFT\dft_process_embed.comp" />
@@ -163,6 +164,12 @@
     <None Include="src\Shaders\DWT\dwt_pass2_cols_embed.comp" />
     <None Include="src\Shaders\DWT\idwt_pass1_cols.comp" />
     <None Include="src\Shaders\DWT\idwt_pass2_rows.comp" />
+    <None Include="src\Shaders\Extraction\extract_dct.comp" />
+    <None Include="src\Shaders\Extraction\extract_dct_ss.comp" />
+    <None Include="src\Shaders\Extraction\extract_dft.comp" />
+    <None Include="src\Shaders\Extraction\extract_dwt.comp" />
+    <None Include="src\Shaders\Extraction\extract_dwt_ss.comp" />
+    <None Include="src\Shaders\Extraction\extract_svd.comp" />
     <None Include="src\Shaders\FFT\fft_radix2.comp" />
     <None Include="src\Shaders\SVD\svd_01_rgb_to_y.comp" />
     <None Include="src\Shaders\SVD\svd_02_store_cbcr.comp" />

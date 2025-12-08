@@ -1,0 +1,75 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) readonly uniform image2D img_original;
+layout(rgba32f, binding = 1) readonly uniform image2D img_marked;
+layout(std430, binding = 2) buffer ExtractedBits { uint out_bits[]; };
+
+uniform uint Width, Height;
+uniform uint BitSize;
+
+struct Mat4 { float m[4][4]; };
+void MatMul(in Mat4 A, in Mat4 B, out Mat4 C) { /* DCT와 동일 */ 
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            C.m[r][c] = A.m[r][0] * B.m[0][c] + A.m[r][1] * B.m[1][c] +
+                        A.m[r][2] * B.m[2][c] + A.m[r][3] * B.m[3][c];
+        }
+    }
+}
+void Transpose(in Mat4 A, out Mat4 T) { /* DCT와 동일 */ 
+    for(int i=0; i<4; i++) for(int j=0; j<4; j++) T.m[i][j] = A.m[j][i];
+}
+
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    Mat4 Y_org, Y_mark;
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p1 = imageLoad(img_original, blkPos + ivec2(x, y)).rgb;
+            vec3 p2 = imageLoad(img_marked, blkPos + ivec2(x, y)).rgb;
+            Y_org.m[y][x]  = 0.299*p1.r + 0.587*p1.g + 0.114*p1.b;
+            Y_mark.m[y][x] = 0.299*p2.r + 0.587*p2.g + 0.114*p2.b;
+        }
+    }
+
+    Mat4 T;
+    float h0 = 0.5; float h1 = 0.70710678;
+    T.m[0][0]=h0; T.m[0][1]=h0; T.m[0][2]=h0;  T.m[0][3]=h0;
+    T.m[1][0]=h0; T.m[1][1]=h0; T.m[1][2]=-h0; T.m[1][3]=-h0;
+    T.m[2][0]=h1; T.m[2][1]=-h1; T.m[2][2]=0.0; T.m[2][3]=0.0;
+    T.m[3][0]=0.0; T.m[3][1]=0.0; T.m[3][2]=h1; T.m[3][3]=-h1;
+
+    Mat4 T_t; Transpose(T, T_t);
+    Mat4 Temp, Coeff_org, Coeff_mark;
+
+    MatMul(T, Y_org, Temp);  MatMul(Temp, T_t, Coeff_org);
+    MatMul(T, Y_mark, Temp); MatMul(Temp, T_t, Coeff_mark);
+
+    // 3. 비트 추출 (타겟: 0, 1 -> LH 밴드)
+    float val_org = Coeff_org.m[0][1];
+    float val_mark = Coeff_mark.m[0][1];
+    float diff = val_mark - val_org;
+
+    uint detectedBit = 0;
+
+    // 1) 원본이 0에 가까움 (Additive 모드로 삽입된 경우)
+    if (abs(val_org) < 1e-5) {
+        // 이때는 val_org의 부호를 곱하면 안 됨 (0이 되니까)
+        // 그냥 diff의 부호가 곧 비트임 (w=1 -> diff>0, w=-1 -> diff<0)
+        if (diff >= 0.0) detectedBit = 1;
+        else             detectedBit = 0;
+    } 
+    // 2) 원본 값이 있음 (Multiplicative 모드로 삽입된 경우)
+    else {
+        // 원본 부호에 따라 증가/감소 방향이 바뀌므로 부호를 곱해서 보정
+        if (diff * sign(val_org) >= 0.0) detectedBit = 1;
+        else                             detectedBit = 0;
+    }
+
+    uint stride = gl_NumWorkGroups.x * 8; 
+    uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
+    out_bits[bitIdx] = detectedBit;
+}

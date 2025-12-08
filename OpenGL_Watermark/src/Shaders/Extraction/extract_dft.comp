@@ -1,0 +1,131 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// 입력: 원본 이미지(Original)와 워터마크된 이미지(Marked)
+layout(rgba32f, binding = 0) readonly uniform image2D img_original;
+layout(rgba32f, binding = 1) readonly uniform image2D img_marked;
+
+// 출력: 추출된 비트를 저장할 버퍼
+layout(std430, binding = 2) buffer ExtractedBits { uint out_bits[]; };
+
+uniform uint Width, Height;
+uniform uint BitSize;
+
+// ------------------------------------------------------------------
+// [복소수 및 DFT 함수]
+// ------------------------------------------------------------------
+struct ComplexBlock { vec2 c[4][4]; };
+
+// 4-Point DFT (Row/Col 공용)
+void DFT_4(in vec2 src[4], out vec2 dst[4]) {
+    dst[0] = src[0] + src[1] + src[2] + src[3];
+    dst[1] = src[0] + vec2(src[1].y, -src[1].x) - src[2] + vec2(-src[3].y, src[3].x);
+    dst[2] = src[0] - src[1] + src[2] - src[3];
+    dst[3] = src[0] + vec2(-src[1].y, src[1].x) - src[2] + vec2(src[3].y, -src[3].x);
+}
+
+// ------------------------------------------------------------------
+// [메인] 추출 로직
+// ------------------------------------------------------------------
+void main() {
+    ivec2 blkPos = ivec2(gl_GlobalInvocationID.xy) * 4;
+    if (blkPos.x >= Width || blkPos.y >= Height) return;
+
+    // ---------------------------------------------------------
+    // 1. 원본 이미지 (Original) -> DFT 변환
+    // ---------------------------------------------------------
+    ComplexBlock C_org;
+    
+    // 1-1. Load (RGB -> Luma)
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_original, blkPos + ivec2(x, y)).rgb; // 직접 로드
+            float luma = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+            C_org.c[y][x] = vec2(luma, 0.0);
+        }
+    }
+
+    // 1-2. Row DFT (Original)
+    for (int y = 0; y < 4; y++) {
+        vec2 rowIn[4] = { C_org.c[y][0], C_org.c[y][1], C_org.c[y][2], C_org.c[y][3] };
+        vec2 rowOut[4];
+        DFT_4(rowIn, rowOut);
+        C_org.c[y][0] = rowOut[0]; C_org.c[y][1] = rowOut[1]; 
+        C_org.c[y][2] = rowOut[2]; C_org.c[y][3] = rowOut[3];
+    }
+
+    // 1-3. Col DFT (Original)
+    for (int x = 0; x < 4; x++) {
+        vec2 colIn[4] = { C_org.c[0][x], C_org.c[1][x], C_org.c[2][x], C_org.c[3][x] };
+        vec2 colOut[4];
+        DFT_4(colIn, colOut);
+        C_org.c[0][x] = colOut[0]; C_org.c[1][x] = colOut[1];
+        C_org.c[2][x] = colOut[2]; C_org.c[3][x] = colOut[3];
+    }
+
+    // ---------------------------------------------------------
+    // 2. 워터마크된 이미지 (Marked) -> DFT 변환
+    // ---------------------------------------------------------
+    ComplexBlock C_mark;
+
+    // 2-1. Load (RGB -> Luma)
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < 4; x++) {
+            vec3 p = imageLoad(img_marked, blkPos + ivec2(x, y)).rgb; // 직접 로드
+            float luma = 0.299*p.r + 0.587*p.g + 0.114*p.b;
+            C_mark.c[y][x] = vec2(luma, 0.0);
+        }
+    }
+
+    // 2-2. Row DFT (Marked)
+    for (int y = 0; y < 4; y++) {
+        vec2 rowIn[4] = { C_mark.c[y][0], C_mark.c[y][1], C_mark.c[y][2], C_mark.c[y][3] };
+        vec2 rowOut[4];
+        DFT_4(rowIn, rowOut);
+        C_mark.c[y][0] = rowOut[0]; C_mark.c[y][1] = rowOut[1]; 
+        C_mark.c[y][2] = rowOut[2]; C_mark.c[y][3] = rowOut[3];
+    }
+
+    // 2-3. Col DFT (Marked)
+    for (int x = 0; x < 4; x++) {
+        vec2 colIn[4] = { C_mark.c[0][x], C_mark.c[1][x], C_mark.c[2][x], C_mark.c[3][x] };
+        vec2 colOut[4];
+        DFT_4(colIn, colOut);
+        C_mark.c[0][x] = colOut[0]; C_mark.c[1][x] = colOut[1];
+        C_mark.c[2][x] = colOut[2]; C_mark.c[3][x] = colOut[3];
+    }
+
+    // ---------------------------------------------------------
+    // 3. 비교 및 추출
+    // ---------------------------------------------------------
+    
+    // 타겟 주파수 (1, 2)의 Magnitude 비교
+    float mag_org  = length(C_org.c[1][2]);
+    float mag_mark = length(C_mark.c[1][2]);
+
+    // 비트 판별
+    // 삽입 로직: mag *= (1.0 + alpha * w);
+    // w=1 이면 커지고(Marked > Original), w=-1 이면 작아짐(Marked < Original)
+    // [기존] float diff = mag_mark - mag_org;
+    // [기존] uint detectedBit = (diff >= 0.0) ? 1 : 0;
+
+    // ★ [수정된 코드]
+    uint detectedBit = 0;
+
+    if (mag_org < 1e-5) {
+        // 원본이 0이었던 경우: 실수부(x)의 부호로 판별
+        // (+delta)면 1, (-delta)면 0
+        if (C_mark.c[1][2].x >= 0.0) detectedBit = 1;
+        else                         detectedBit = 0;
+    } else {
+        // 원본이 있었던 경우: 기존대로 크기(Magnitude) 차이 비교
+        float diff = mag_mark - mag_org;
+        if (diff >= 0.0) detectedBit = 1;
+        else             detectedBit = 0;
+    }
+
+    // 4. 저장
+    uint stride = gl_NumWorkGroups.x * 8; 
+    uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
+    out_bits[bitIdx] = detectedBit;
+}

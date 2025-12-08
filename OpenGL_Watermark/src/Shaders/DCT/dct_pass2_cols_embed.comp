@@ -108,11 +108,16 @@ void main()
 
         if (blockLinearIndex < BitLength)
         {
+            uint StartOffset = 6;
+
             for (uint i = 0; i < CoefficientsToUse; ++i)
             {
-                if (i < 63) // ZigZag 배열 범위 (63개)
+                // 인덱스 오프셋 적용
+                uint zigZagIdx = i + StartOffset; 
+    
+                if (zigZagIdx < 63)
                 {
-                    uvec2 targetUV = ZigZagIndices[i];
+                    uvec2 targetUV = ZigZagIndices[zigZagIdx];
                     if (threadX == targetUV.x && threadY == targetUV.y)
                     {
                         uint bit = bitstream_buf.Bitstream[blockLinearIndex];
@@ -120,9 +125,29 @@ void main()
                         uint pattern_idx = blockLinearIndex * CoefficientsToUse + i;
                         
                         float pattern_value = pattern_buf.PatternBuffer[pattern_idx];
-                        float modification = EmbeddingStrength * pattern_value * bit_sign;
+                        // 분산 개수만큼 힘을 나눔 (예: 10개면 1/3 정도로)
+                        float scaleFactor = 1.0 / sqrt(float(CoefficientsToUse)); 
+                        float modification = (EmbeddingStrength * scaleFactor) * pattern_value * bit_sign;
 
-                        finalCoefficientToWrite = finalCoefficientToWrite * (1.0f + modification);
+                        // [수정 후] 하이브리드 방식 (R 채널 기준 예시, RGB 다 적용하려면 vec3 연산 필요)
+                        // 간단하게 vec3 전체에 대해 적용
+                        float alpha = EmbeddingStrength * 0.00073; // Legacy는 Strength 단위가 클 수 있으므로 조정 필요
+
+                        // 각 채널별로 하이브리드 적용 (루프 없이 vec3 연산)
+                        vec3 val = finalCoefficientToWrite;
+                        vec3 addTerm = vec3(alpha * 0.5 * bit_sign * pattern_value); // 덧셈 항
+                        vec3 mulTerm = vec3(1.0 + alpha * bit_sign * pattern_value); // 곱셈 항
+
+                        // 0에 가까우면 덧셈, 아니면 곱셈 (mix 함수 활용 가능하지만 if문이 명확함)
+                        // GLSL의 mix(a, b, condition)은 condition이 bool 벡터여야 함 (버전 따라 다름)
+                        // 여기서는 간단히 개별 처리 혹은 0 체크 없이 덧셈항을 살짝 섞는 방식 추천
+
+                        // [가장 확실한 방법]
+                        if (abs(val.r) < 1e-5) val.r += addTerm.r; else val.r *= mulTerm.r;
+                        if (abs(val.g) < 1e-5) val.g += addTerm.g; else val.g *= mulTerm.g;
+                        if (abs(val.b) < 1e-5) val.b += addTerm.b; else val.b *= mulTerm.b;
+
+                        finalCoefficientToWrite = val;
                         break; 
                     }
                 }
