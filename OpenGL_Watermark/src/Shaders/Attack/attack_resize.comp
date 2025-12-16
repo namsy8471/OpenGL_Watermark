@@ -1,0 +1,23 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+layout(rgba32f, binding = 0) uniform image2D img_in; // Read/Write
+layout(rgba32f, binding = 1) writeonly uniform image2D img_out;
+
+uniform float Scale; // 0.5 = 50% 축소 후 복원
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(img_in);
+    if (pos.x >= size.x || pos.y >= size.y) return;
+
+    // 저해상도 좌표 계산 (Nearest Neighbor로 뭉개기)
+    // 실제로는 Bilinear가 더 현실적이지만, Compute Shader에서 간단히 구현
+    vec2 uv = vec2(pos) / vec2(size);
+    
+    // 강제로 좌표를 거칠게 만듦 (Quantize UV)
+    vec2 lowResUV = floor(uv * vec2(size) * Scale) / (vec2(size) * Scale);
+    ivec2 samplePos = ivec2(lowResUV * vec2(size));
+
+    vec4 color = imageLoad(img_in, samplePos);
+    imageStore(img_out, pos, color);
+}

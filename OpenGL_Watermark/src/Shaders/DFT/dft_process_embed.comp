@@ -1,37 +1,55 @@
 #version 430 core
 layout(local_size_x = 32, local_size_y = 32) in;
 
-layout(rg32f, binding = 0) uniform image2D img_freq; // Read-Write
+layout(rg32f, binding = 0) uniform image2D img_freq; // (Real, Imag)
 layout(std430, binding = 2) buffer BitStream { uint bits[]; };
 
 uniform uint PaddedSize;
-uniform float Strength;
 uniform uint Embed;
+uniform float Strength; // C++에서 보낸 값 (보통 20~50)
 
 void main() {
     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
     if (pos.x >= PaddedSize || pos.y >= PaddedSize) return;
 
-    if (Embed == 0) return;
-
-    vec2 val = imageLoad(img_freq, pos).xy;
+    // ★ [핵심] 삽입/추출 좌표 동기화를 위한 "안전 영역" 설정
+    // DC 성분(0,0) 근처는 건드리지 않고, (10, 10)부터 시작
+    // 대칭성(Conjugate Symmetry) 고려 안 하고, 단순하게 상단 절반만 쓴다고 가정 (BER 측정용)
     
-    // 워터마킹 로직 (Magnitude 조작)
-    float mag = length(val);
-    float phase = atan(val.y, val.x);
-    
-    // [간단한 예시] 특정 주파수 대역에만 삽입
-    // DC 성분(0,0)과 너무 고주파는 피함
-    if (pos.x > 10 && pos.x < 500 && pos.y > 10 && pos.y < 500) {
-        // 비트맵핑 (간소화)
-        uint bit = bits[(pos.y * PaddedSize + pos.x) % 1024];
-        float w = (bit == 1) ? 1.0 : -1.0;
+    // 유효 영역: (10, 10) ~ (PaddedSize-10, PaddedSize/2)
+    if (pos.x >= 10 && pos.x < PaddedSize - 10 && 
+        pos.y >= 10 && pos.y < PaddedSize / 2) 
+    {
+        // 1D 인덱스 계산 (좌표 -> 비트 인덱스)
+        // 이 공식이 Extract 셰이더와 100% 동일해야 함
+        uint width = PaddedSize;
+        uint linearIdx = pos.y * width + pos.x; 
         
-        mag *= (1.0 + Strength * 0.0485 * w);
+        // 너무 큰 인덱스는 버림 (비트 스트림 길이 초과 방지)
+        // 여기서는 간단히 무한 반복되게 % 연산 사용
+        // (실전에서는 BitSize 유니폼 받아서 처리 추천)
+        uint bitIdx = linearIdx % 32768; // 임의의 충분히 큰 수 (Legacy용)
+
+        if (Embed == 1) {
+            vec2 complexVal = imageLoad(img_freq, pos).xy;
+            float mag = length(complexVal);
+            
+            // 비트 정보
+            uint bit = bits[bitIdx];
+            float w = (bit == 1) ? 1.0 : -1.0;
+            float alpha = Strength * 0.026; // DFT는 값이 매우 크므로 스케일링 작게
+
+            // 하이브리드 로직
+            float newMag = mag;
+            if (mag < 1e-5) newMag += (alpha * 0.5 * w);
+            else            newMag *= (1.0 + alpha * w);
+            
+            // 적용 (위상 유지)
+            vec2 newVal;
+            if (mag < 1e-9) newVal = vec2(newMag, 0.0); // 0이었으면 실수축으로
+            else            newVal = normalize(complexVal) * newMag;
+            
+            imageStore(img_freq, pos, vec4(newVal, 0.0, 0.0));
+        }
     }
-
-    val.x = mag * cos(phase);
-    val.y = mag * sin(phase);
-
-    imageStore(img_freq, pos, vec4(val, 0.0, 0.0));
 }

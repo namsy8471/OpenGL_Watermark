@@ -104,7 +104,7 @@ void main() {
         uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
 
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
-        float alpha = Strength * 0.0199;
+        float alpha = Strength * 0.0400;
         //float alpha = Strength * 0.5;
 
         // Target (1,2)

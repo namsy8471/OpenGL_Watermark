@@ -1,0 +1,814 @@
+Algorithm,Alpha,Attack Type,Parameter,RecovBER
+DCT(L),0,No Attack,0,0.4375
+DCT(L),0,Crop 50%,0.5,0.4375
+DCT(L),0,Crop 70%,0.7,0.4375
+DCT(L),0,Resize 50%,0.5,0.4375
+DCT(L),0,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0,Quantize (32 levels),32,0.4375
+DCT(L),0,Gamma 0.8,0.8,0.4375
+DCT(L),0,Brightness +0.2,0.2,0.4375
+DCT(L),0,Rotation 1 deg,1,0.4375
+DCT(L),0,Rotation 5 deg,5,0.4375
+DCT(L),0,Rotation 45 deg,45,0.4375
+DWT(L),0,No Attack,0,0.4375
+DWT(L),0,Crop 50%,0.5,0.4375
+DWT(L),0,Crop 70%,0.7,0.4375
+DWT(L),0,Resize 50%,0.5,0.4375
+DWT(L),0,Salt&Pepper 1%,0.01,0.4375
+DWT(L),0,Salt&Pepper 5%,0.05,0.4375
+DWT(L),0,Quantize (32 levels),32,0.4375
+DWT(L),0,Gamma 0.8,0.8,0.4375
+DWT(L),0,Brightness +0.2,0.2,0.4375
+DWT(L),0,Rotation 1 deg,1,0.4375
+DWT(L),0,Rotation 5 deg,5,0.4375
+DWT(L),0,Rotation 45 deg,45,0.4375
+SVD(S),0,No Attack,0,0.4375
+SVD(S),0,Crop 50%,0.5,0.5625
+SVD(S),0,Crop 70%,0.7,0.5625
+SVD(S),0,Resize 50%,0.5,0.5625
+SVD(S),0,Salt&Pepper 1%,0.01,0.4375
+SVD(S),0,Salt&Pepper 5%,0.05,0.4375
+SVD(S),0,Quantize (32 levels),32,0.5625
+SVD(S),0,Gamma 0.8,0.8,0.5625
+SVD(S),0,Brightness +0.2,0.2,0.4375
+SVD(S),0,Rotation 1 deg,1,0.515625
+SVD(S),0,Rotation 5 deg,5,0.578125
+SVD(S),0,Rotation 45 deg,45,0.5625
+SVD(I),0,No Attack,0,0.4375
+SVD(I),0,Crop 50%,0.5,0.5625
+SVD(I),0,Crop 70%,0.7,0.5625
+SVD(I),0,Resize 50%,0.5,0.5625
+SVD(I),0,Salt&Pepper 1%,0.01,0.4375
+SVD(I),0,Salt&Pepper 5%,0.05,0.4375
+SVD(I),0,Quantize (32 levels),32,0.5625
+SVD(I),0,Gamma 0.8,0.8,0.5625
+SVD(I),0,Brightness +0.2,0.2,0.4375
+SVD(I),0,Rotation 1 deg,1,0.515625
+SVD(I),0,Rotation 5 deg,5,0.578125
+SVD(I),0,Rotation 45 deg,45,0.5625
+DFT(L),0,No Attack,0,0.5625
+DFT(L),0,Crop 50%,0.5,0.5625
+DFT(L),0,Crop 70%,0.7,0.5625
+DFT(L),0,Resize 50%,0.5,0.5625
+DFT(L),0,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0,Quantize (32 levels),32,0.5625
+DFT(L),0,Gamma 0.8,0.8,0.5625
+DFT(L),0,Brightness +0.2,0.2,0.5625
+DFT(L),0,Rotation 1 deg,1,0.5625
+DFT(L),0,Rotation 5 deg,5,0.5625
+DFT(L),0,Rotation 45 deg,45,0.5625
+DCT(O),0,No Attack,0,0.640625
+DCT(O),0,Crop 50%,0.5,0.53125
+DCT(O),0,Crop 70%,0.7,0.546875
+DCT(O),0,Resize 50%,0.5,0.515625
+DCT(O),0,Salt&Pepper 1%,0.01,0.5625
+DCT(O),0,Salt&Pepper 5%,0.05,0.578125
+DCT(O),0,Quantize (32 levels),32,0.4375
+DCT(O),0,Gamma 0.8,0.8,0.515625
+DCT(O),0,Brightness +0.2,0.2,0.609375
+DCT(O),0,Rotation 1 deg,1,0.578125
+DCT(O),0,Rotation 5 deg,5,0.5625
+DCT(O),0,Rotation 45 deg,45,0.625
+DWT(O),0,No Attack,0,0.4375
+DWT(O),0,Crop 50%,0.5,0.5625
+DWT(O),0,Crop 70%,0.7,0.5625
+DWT(O),0,Resize 50%,0.5,0.515625
+DWT(O),0,Salt&Pepper 1%,0.01,0.4375
+DWT(O),0,Salt&Pepper 5%,0.05,0.4375
+DWT(O),0,Quantize (32 levels),32,0.546875
+DWT(O),0,Gamma 0.8,0.8,0.4375
+DWT(O),0,Brightness +0.2,0.2,0.4375
+DWT(O),0,Rotation 1 deg,1,0.5625
+DWT(O),0,Rotation 5 deg,5,0.5625
+DWT(O),0,Rotation 45 deg,45,0.5625
+DFT(O),0,No Attack,0,0.4375
+DFT(O),0,Crop 50%,0.5,0.5625
+DFT(O),0,Crop 70%,0.7,0.5625
+DFT(O),0,Resize 50%,0.5,0.5625
+DFT(O),0,Salt&Pepper 1%,0.01,0.4375
+DFT(O),0,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0,Quantize (32 levels),32,0.453125
+DFT(O),0,Gamma 0.8,0.8,0.4375
+DFT(O),0,Brightness +0.2,0.2,0.484375
+DFT(O),0,Rotation 1 deg,1,0.609375
+DFT(O),0,Rotation 5 deg,5,0.4375
+DFT(O),0,Rotation 45 deg,45,0.4375
+DCT(L),0.02,No Attack,0,0.015625
+DCT(L),0.02,Crop 50%,0.5,0.09375
+DCT(L),0.02,Crop 70%,0.7,0.046875
+DCT(L),0.02,Resize 50%,0.5,0.4375
+DCT(L),0.02,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.02,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.02,Quantize (32 levels),32,0.4375
+DCT(L),0.02,Gamma 0.8,0.8,0.4375
+DCT(L),0.02,Brightness +0.2,0.2,0.015625
+DCT(L),0.02,Rotation 1 deg,1,0.4375
+DCT(L),0.02,Rotation 5 deg,5,0.4375
+DCT(L),0.02,Rotation 45 deg,45,0.4375
+DWT(L),0.02,No Attack,0,0.0625
+DWT(L),0.02,Crop 50%,0.5,0.4375
+DWT(L),0.02,Crop 70%,0.7,0.375
+DWT(L),0.02,Resize 50%,0.5,0.4375
+DWT(L),0.02,Salt&Pepper 1%,0.01,0.140625
+DWT(L),0.02,Salt&Pepper 5%,0.05,0.34375
+DWT(L),0.02,Quantize (32 levels),32,0.4375
+DWT(L),0.02,Gamma 0.8,0.8,0.40625
+DWT(L),0.02,Brightness +0.2,0.2,0.046875
+DWT(L),0.02,Rotation 1 deg,1,0.4375
+DWT(L),0.02,Rotation 5 deg,5,0.4375
+DWT(L),0.02,Rotation 45 deg,45,0.4375
+SVD(S),0.02,No Attack,0,0
+SVD(S),0.02,Crop 50%,0.5,0.5625
+SVD(S),0.02,Crop 70%,0.7,0.234375
+SVD(S),0.02,Resize 50%,0.5,0.5625
+SVD(S),0.02,Salt&Pepper 1%,0.01,0
+SVD(S),0.02,Salt&Pepper 5%,0.05,0
+SVD(S),0.02,Quantize (32 levels),32,0.5625
+SVD(S),0.02,Gamma 0.8,0.8,0.5625
+SVD(S),0.02,Brightness +0.2,0.2,0.4375
+SVD(S),0.02,Rotation 1 deg,1,0.53125
+SVD(S),0.02,Rotation 5 deg,5,0.578125
+SVD(S),0.02,Rotation 45 deg,45,0.5625
+SVD(I),0.02,No Attack,0,0
+SVD(I),0.02,Crop 50%,0.5,0.5625
+SVD(I),0.02,Crop 70%,0.7,0.234375
+SVD(I),0.02,Resize 50%,0.5,0.5625
+SVD(I),0.02,Salt&Pepper 1%,0.01,0
+SVD(I),0.02,Salt&Pepper 5%,0.05,0
+SVD(I),0.02,Quantize (32 levels),32,0.5625
+SVD(I),0.02,Gamma 0.8,0.8,0.5625
+SVD(I),0.02,Brightness +0.2,0.2,0.4375
+SVD(I),0.02,Rotation 1 deg,1,0.53125
+SVD(I),0.02,Rotation 5 deg,5,0.578125
+SVD(I),0.02,Rotation 45 deg,45,0.5625
+DFT(L),0.02,No Attack,0,0.5625
+DFT(L),0.02,Crop 50%,0.5,0.5625
+DFT(L),0.02,Crop 70%,0.7,0.5625
+DFT(L),0.02,Resize 50%,0.5,0.5625
+DFT(L),0.02,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.02,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.02,Quantize (32 levels),32,0.5625
+DFT(L),0.02,Gamma 0.8,0.8,0.5625
+DFT(L),0.02,Brightness +0.2,0.2,0.5625
+DFT(L),0.02,Rotation 1 deg,1,0.5625
+DFT(L),0.02,Rotation 5 deg,5,0.5625
+DFT(L),0.02,Rotation 45 deg,45,0.5625
+DCT(O),0.02,No Attack,0,0
+DCT(O),0.02,Crop 50%,0.5,0
+DCT(O),0.02,Crop 70%,0.7,0
+DCT(O),0.02,Resize 50%,0.5,0.515625
+DCT(O),0.02,Salt&Pepper 1%,0.01,0
+DCT(O),0.02,Salt&Pepper 5%,0.05,0
+DCT(O),0.02,Quantize (32 levels),32,0
+DCT(O),0.02,Gamma 0.8,0.8,0
+DCT(O),0.02,Brightness +0.2,0.2,0
+DCT(O),0.02,Rotation 1 deg,1,0.515625
+DCT(O),0.02,Rotation 5 deg,5,0.5
+DCT(O),0.02,Rotation 45 deg,45,0.546875
+DWT(O),0.02,No Attack,0,0
+DWT(O),0.02,Crop 50%,0.5,0.5625
+DWT(O),0.02,Crop 70%,0.7,0.234375
+DWT(O),0.02,Resize 50%,0.5,0
+DWT(O),0.02,Salt&Pepper 1%,0.01,0
+DWT(O),0.02,Salt&Pepper 5%,0.05,0
+DWT(O),0.02,Quantize (32 levels),32,0.453125
+DWT(O),0.02,Gamma 0.8,0.8,0
+DWT(O),0.02,Brightness +0.2,0.2,0
+DWT(O),0.02,Rotation 1 deg,1,0.5625
+DWT(O),0.02,Rotation 5 deg,5,0.5625
+DWT(O),0.02,Rotation 45 deg,45,0.5625
+DFT(O),0.02,No Attack,0,0
+DFT(O),0.02,Crop 50%,0.5,0.5625
+DFT(O),0.02,Crop 70%,0.7,0.21875
+DFT(O),0.02,Resize 50%,0.5,0.5625
+DFT(O),0.02,Salt&Pepper 1%,0.01,0
+DFT(O),0.02,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.02,Quantize (32 levels),32,0.375
+DFT(O),0.02,Gamma 0.8,0.8,0.4375
+DFT(O),0.02,Brightness +0.2,0.2,0
+DFT(O),0.02,Rotation 1 deg,1,0.46875
+DFT(O),0.02,Rotation 5 deg,5,0.4375
+DFT(O),0.02,Rotation 45 deg,45,0.4375
+DCT(L),0.04,No Attack,0,0.015625
+DCT(L),0.04,Crop 50%,0.5,0.203125
+DCT(L),0.04,Crop 70%,0.7,0.09375
+DCT(L),0.04,Resize 50%,0.5,0.4375
+DCT(L),0.04,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.04,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.04,Quantize (32 levels),32,0.4375
+DCT(L),0.04,Gamma 0.8,0.8,0.4375
+DCT(L),0.04,Brightness +0.2,0.2,0.015625
+DCT(L),0.04,Rotation 1 deg,1,0.4375
+DCT(L),0.04,Rotation 5 deg,5,0.4375
+DCT(L),0.04,Rotation 45 deg,45,0.4375
+DWT(L),0.04,No Attack,0,0.015625
+DWT(L),0.04,Crop 50%,0.5,0.4375
+DWT(L),0.04,Crop 70%,0.7,0.390625
+DWT(L),0.04,Resize 50%,0.5,0.4375
+DWT(L),0.04,Salt&Pepper 1%,0.01,0.03125
+DWT(L),0.04,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.04,Quantize (32 levels),32,0.390625
+DWT(L),0.04,Gamma 0.8,0.8,0.40625
+DWT(L),0.04,Brightness +0.2,0.2,0.015625
+DWT(L),0.04,Rotation 1 deg,1,0.4375
+DWT(L),0.04,Rotation 5 deg,5,0.4375
+DWT(L),0.04,Rotation 45 deg,45,0.4375
+SVD(S),0.04,No Attack,0,0
+SVD(S),0.04,Crop 50%,0.5,0.5625
+SVD(S),0.04,Crop 70%,0.7,0.234375
+SVD(S),0.04,Resize 50%,0.5,0.5625
+SVD(S),0.04,Salt&Pepper 1%,0.01,0
+SVD(S),0.04,Salt&Pepper 5%,0.05,0
+SVD(S),0.04,Quantize (32 levels),32,0.5625
+SVD(S),0.04,Gamma 0.8,0.8,0.5625
+SVD(S),0.04,Brightness +0.2,0.2,0.4375
+SVD(S),0.04,Rotation 1 deg,1,0.515625
+SVD(S),0.04,Rotation 5 deg,5,0.578125
+SVD(S),0.04,Rotation 45 deg,45,0.5625
+SVD(I),0.04,No Attack,0,0
+SVD(I),0.04,Crop 50%,0.5,0.5625
+SVD(I),0.04,Crop 70%,0.7,0.234375
+SVD(I),0.04,Resize 50%,0.5,0.5625
+SVD(I),0.04,Salt&Pepper 1%,0.01,0
+SVD(I),0.04,Salt&Pepper 5%,0.05,0
+SVD(I),0.04,Quantize (32 levels),32,0.5625
+SVD(I),0.04,Gamma 0.8,0.8,0.5625
+SVD(I),0.04,Brightness +0.2,0.2,0.4375
+SVD(I),0.04,Rotation 1 deg,1,0.515625
+SVD(I),0.04,Rotation 5 deg,5,0.578125
+SVD(I),0.04,Rotation 45 deg,45,0.5625
+DFT(L),0.04,No Attack,0,0.5625
+DFT(L),0.04,Crop 50%,0.5,0.5625
+DFT(L),0.04,Crop 70%,0.7,0.5625
+DFT(L),0.04,Resize 50%,0.5,0.5625
+DFT(L),0.04,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.04,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.04,Quantize (32 levels),32,0.5625
+DFT(L),0.04,Gamma 0.8,0.8,0.5625
+DFT(L),0.04,Brightness +0.2,0.2,0.5625
+DFT(L),0.04,Rotation 1 deg,1,0.5625
+DFT(L),0.04,Rotation 5 deg,5,0.5625
+DFT(L),0.04,Rotation 45 deg,45,0.5625
+DCT(O),0.04,No Attack,0,0
+DCT(O),0.04,Crop 50%,0.5,0
+DCT(O),0.04,Crop 70%,0.7,0
+DCT(O),0.04,Resize 50%,0.5,0.515625
+DCT(O),0.04,Salt&Pepper 1%,0.01,0
+DCT(O),0.04,Salt&Pepper 5%,0.05,0
+DCT(O),0.04,Quantize (32 levels),32,0
+DCT(O),0.04,Gamma 0.8,0.8,0
+DCT(O),0.04,Brightness +0.2,0.2,0
+DCT(O),0.04,Rotation 1 deg,1,0.453125
+DCT(O),0.04,Rotation 5 deg,5,0.484375
+DCT(O),0.04,Rotation 45 deg,45,0.46875
+DWT(O),0.04,No Attack,0,0
+DWT(O),0.04,Crop 50%,0.5,0.5625
+DWT(O),0.04,Crop 70%,0.7,0.234375
+DWT(O),0.04,Resize 50%,0.5,0
+DWT(O),0.04,Salt&Pepper 1%,0.01,0
+DWT(O),0.04,Salt&Pepper 5%,0.05,0
+DWT(O),0.04,Quantize (32 levels),32,0.1875
+DWT(O),0.04,Gamma 0.8,0.8,0
+DWT(O),0.04,Brightness +0.2,0.2,0
+DWT(O),0.04,Rotation 1 deg,1,0.5625
+DWT(O),0.04,Rotation 5 deg,5,0.5625
+DWT(O),0.04,Rotation 45 deg,45,0.5625
+DFT(O),0.04,No Attack,0,0
+DFT(O),0.04,Crop 50%,0.5,0.5625
+DFT(O),0.04,Crop 70%,0.7,0.21875
+DFT(O),0.04,Resize 50%,0.5,0.5625
+DFT(O),0.04,Salt&Pepper 1%,0.01,0
+DFT(O),0.04,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.04,Quantize (32 levels),32,0.375
+DFT(O),0.04,Gamma 0.8,0.8,0.296875
+DFT(O),0.04,Brightness +0.2,0.2,0
+DFT(O),0.04,Rotation 1 deg,1,0.453125
+DFT(O),0.04,Rotation 5 deg,5,0.4375
+DFT(O),0.04,Rotation 45 deg,45,0.4375
+DCT(L),0.06,No Attack,0,0.015625
+DCT(L),0.06,Crop 50%,0.5,0.203125
+DCT(L),0.06,Crop 70%,0.7,0.109375
+DCT(L),0.06,Resize 50%,0.5,0.4375
+DCT(L),0.06,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.06,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.06,Quantize (32 levels),32,0.4375
+DCT(L),0.06,Gamma 0.8,0.8,0.4375
+DCT(L),0.06,Brightness +0.2,0.2,0.015625
+DCT(L),0.06,Rotation 1 deg,1,0.4375
+DCT(L),0.06,Rotation 5 deg,5,0.4375
+DCT(L),0.06,Rotation 45 deg,45,0.4375
+DWT(L),0.06,No Attack,0,0.015625
+DWT(L),0.06,Crop 50%,0.5,0.4375
+DWT(L),0.06,Crop 70%,0.7,0.390625
+DWT(L),0.06,Resize 50%,0.5,0.4375
+DWT(L),0.06,Salt&Pepper 1%,0.01,0.03125
+DWT(L),0.06,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.06,Quantize (32 levels),32,0.359375
+DWT(L),0.06,Gamma 0.8,0.8,0.40625
+DWT(L),0.06,Brightness +0.2,0.2,0.015625
+DWT(L),0.06,Rotation 1 deg,1,0.4375
+DWT(L),0.06,Rotation 5 deg,5,0.4375
+DWT(L),0.06,Rotation 45 deg,45,0.4375
+SVD(S),0.06,No Attack,0,0
+SVD(S),0.06,Crop 50%,0.5,0.5625
+SVD(S),0.06,Crop 70%,0.7,0.234375
+SVD(S),0.06,Resize 50%,0.5,0.5625
+SVD(S),0.06,Salt&Pepper 1%,0.01,0
+SVD(S),0.06,Salt&Pepper 5%,0.05,0
+SVD(S),0.06,Quantize (32 levels),32,0.5625
+SVD(S),0.06,Gamma 0.8,0.8,0.5625
+SVD(S),0.06,Brightness +0.2,0.2,0.4375
+SVD(S),0.06,Rotation 1 deg,1,0.5
+SVD(S),0.06,Rotation 5 deg,5,0.578125
+SVD(S),0.06,Rotation 45 deg,45,0.5625
+SVD(I),0.06,No Attack,0,0
+SVD(I),0.06,Crop 50%,0.5,0.5625
+SVD(I),0.06,Crop 70%,0.7,0.234375
+SVD(I),0.06,Resize 50%,0.5,0.5625
+SVD(I),0.06,Salt&Pepper 1%,0.01,0
+SVD(I),0.06,Salt&Pepper 5%,0.05,0
+SVD(I),0.06,Quantize (32 levels),32,0.5625
+SVD(I),0.06,Gamma 0.8,0.8,0.5625
+SVD(I),0.06,Brightness +0.2,0.2,0.4375
+SVD(I),0.06,Rotation 1 deg,1,0.5
+SVD(I),0.06,Rotation 5 deg,5,0.578125
+SVD(I),0.06,Rotation 45 deg,45,0.5625
+DFT(L),0.06,No Attack,0,0.5625
+DFT(L),0.06,Crop 50%,0.5,0.5625
+DFT(L),0.06,Crop 70%,0.7,0.5625
+DFT(L),0.06,Resize 50%,0.5,0.5625
+DFT(L),0.06,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.06,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.06,Quantize (32 levels),32,0.5625
+DFT(L),0.06,Gamma 0.8,0.8,0.5625
+DFT(L),0.06,Brightness +0.2,0.2,0.5625
+DFT(L),0.06,Rotation 1 deg,1,0.5625
+DFT(L),0.06,Rotation 5 deg,5,0.5625
+DFT(L),0.06,Rotation 45 deg,45,0.5625
+DCT(O),0.06,No Attack,0,0
+DCT(O),0.06,Crop 50%,0.5,0
+DCT(O),0.06,Crop 70%,0.7,0
+DCT(O),0.06,Resize 50%,0.5,0.515625
+DCT(O),0.06,Salt&Pepper 1%,0.01,0
+DCT(O),0.06,Salt&Pepper 5%,0.05,0
+DCT(O),0.06,Quantize (32 levels),32,0
+DCT(O),0.06,Gamma 0.8,0.8,0
+DCT(O),0.06,Brightness +0.2,0.2,0
+DCT(O),0.06,Rotation 1 deg,1,0.421875
+DCT(O),0.06,Rotation 5 deg,5,0.4375
+DCT(O),0.06,Rotation 45 deg,45,0.484375
+DWT(O),0.06,No Attack,0,0
+DWT(O),0.06,Crop 50%,0.5,0.5625
+DWT(O),0.06,Crop 70%,0.7,0.234375
+DWT(O),0.06,Resize 50%,0.5,0
+DWT(O),0.06,Salt&Pepper 1%,0.01,0
+DWT(O),0.06,Salt&Pepper 5%,0.05,0
+DWT(O),0.06,Quantize (32 levels),32,0.015625
+DWT(O),0.06,Gamma 0.8,0.8,0
+DWT(O),0.06,Brightness +0.2,0.2,0
+DWT(O),0.06,Rotation 1 deg,1,0.5625
+DWT(O),0.06,Rotation 5 deg,5,0.5625
+DWT(O),0.06,Rotation 45 deg,45,0.5625
+DFT(O),0.06,No Attack,0,0
+DFT(O),0.06,Crop 50%,0.5,0.5625
+DFT(O),0.06,Crop 70%,0.7,0.21875
+DFT(O),0.06,Resize 50%,0.5,0.5625
+DFT(O),0.06,Salt&Pepper 1%,0.01,0
+DFT(O),0.06,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.06,Quantize (32 levels),32,0.375
+DFT(O),0.06,Gamma 0.8,0.8,0
+DFT(O),0.06,Brightness +0.2,0.2,0
+DFT(O),0.06,Rotation 1 deg,1,0.453125
+DFT(O),0.06,Rotation 5 deg,5,0.4375
+DFT(O),0.06,Rotation 45 deg,45,0.4375
+DCT(L),0.08,No Attack,0,0.015625
+DCT(L),0.08,Crop 50%,0.5,0.203125
+DCT(L),0.08,Crop 70%,0.7,0.109375
+DCT(L),0.08,Resize 50%,0.5,0.4375
+DCT(L),0.08,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.08,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.08,Quantize (32 levels),32,0.4375
+DCT(L),0.08,Gamma 0.8,0.8,0.4375
+DCT(L),0.08,Brightness +0.2,0.2,0.015625
+DCT(L),0.08,Rotation 1 deg,1,0.4375
+DCT(L),0.08,Rotation 5 deg,5,0.4375
+DCT(L),0.08,Rotation 45 deg,45,0.4375
+DWT(L),0.08,No Attack,0,0.015625
+DWT(L),0.08,Crop 50%,0.5,0.4375
+DWT(L),0.08,Crop 70%,0.7,0.390625
+DWT(L),0.08,Resize 50%,0.5,0.4375
+DWT(L),0.08,Salt&Pepper 1%,0.01,0.03125
+DWT(L),0.08,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.08,Quantize (32 levels),32,0.28125
+DWT(L),0.08,Gamma 0.8,0.8,0.40625
+DWT(L),0.08,Brightness +0.2,0.2,0.015625
+DWT(L),0.08,Rotation 1 deg,1,0.4375
+DWT(L),0.08,Rotation 5 deg,5,0.4375
+DWT(L),0.08,Rotation 45 deg,45,0.4375
+SVD(S),0.08,No Attack,0,0
+SVD(S),0.08,Crop 50%,0.5,0.5625
+SVD(S),0.08,Crop 70%,0.7,0.234375
+SVD(S),0.08,Resize 50%,0.5,0.5625
+SVD(S),0.08,Salt&Pepper 1%,0.01,0
+SVD(S),0.08,Salt&Pepper 5%,0.05,0
+SVD(S),0.08,Quantize (32 levels),32,0.5625
+SVD(S),0.08,Gamma 0.8,0.8,0.5625
+SVD(S),0.08,Brightness +0.2,0.2,0.4375
+SVD(S),0.08,Rotation 1 deg,1,0.46875
+SVD(S),0.08,Rotation 5 deg,5,0.578125
+SVD(S),0.08,Rotation 45 deg,45,0.5625
+SVD(I),0.08,No Attack,0,0
+SVD(I),0.08,Crop 50%,0.5,0.5625
+SVD(I),0.08,Crop 70%,0.7,0.234375
+SVD(I),0.08,Resize 50%,0.5,0.5625
+SVD(I),0.08,Salt&Pepper 1%,0.01,0
+SVD(I),0.08,Salt&Pepper 5%,0.05,0
+SVD(I),0.08,Quantize (32 levels),32,0.5625
+SVD(I),0.08,Gamma 0.8,0.8,0.5625
+SVD(I),0.08,Brightness +0.2,0.2,0.4375
+SVD(I),0.08,Rotation 1 deg,1,0.46875
+SVD(I),0.08,Rotation 5 deg,5,0.578125
+SVD(I),0.08,Rotation 45 deg,45,0.5625
+DFT(L),0.08,No Attack,0,0.5625
+DFT(L),0.08,Crop 50%,0.5,0.5625
+DFT(L),0.08,Crop 70%,0.7,0.5625
+DFT(L),0.08,Resize 50%,0.5,0.5625
+DFT(L),0.08,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.08,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.08,Quantize (32 levels),32,0.5625
+DFT(L),0.08,Gamma 0.8,0.8,0.5625
+DFT(L),0.08,Brightness +0.2,0.2,0.5625
+DFT(L),0.08,Rotation 1 deg,1,0.5625
+DFT(L),0.08,Rotation 5 deg,5,0.5625
+DFT(L),0.08,Rotation 45 deg,45,0.5625
+DCT(O),0.08,No Attack,0,0
+DCT(O),0.08,Crop 50%,0.5,0
+DCT(O),0.08,Crop 70%,0.7,0
+DCT(O),0.08,Resize 50%,0.5,0.515625
+DCT(O),0.08,Salt&Pepper 1%,0.01,0
+DCT(O),0.08,Salt&Pepper 5%,0.05,0
+DCT(O),0.08,Quantize (32 levels),32,0
+DCT(O),0.08,Gamma 0.8,0.8,0
+DCT(O),0.08,Brightness +0.2,0.2,0
+DCT(O),0.08,Rotation 1 deg,1,0.375
+DCT(O),0.08,Rotation 5 deg,5,0.4375
+DCT(O),0.08,Rotation 45 deg,45,0.53125
+DWT(O),0.08,No Attack,0,0
+DWT(O),0.08,Crop 50%,0.5,0.5625
+DWT(O),0.08,Crop 70%,0.7,0.234375
+DWT(O),0.08,Resize 50%,0.5,0
+DWT(O),0.08,Salt&Pepper 1%,0.01,0
+DWT(O),0.08,Salt&Pepper 5%,0.05,0
+DWT(O),0.08,Quantize (32 levels),32,0
+DWT(O),0.08,Gamma 0.8,0.8,0
+DWT(O),0.08,Brightness +0.2,0.2,0
+DWT(O),0.08,Rotation 1 deg,1,0.5625
+DWT(O),0.08,Rotation 5 deg,5,0.5625
+DWT(O),0.08,Rotation 45 deg,45,0.5625
+DFT(O),0.08,No Attack,0,0
+DFT(O),0.08,Crop 50%,0.5,0.5625
+DFT(O),0.08,Crop 70%,0.7,0.21875
+DFT(O),0.08,Resize 50%,0.5,0.5625
+DFT(O),0.08,Salt&Pepper 1%,0.01,0
+DFT(O),0.08,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.08,Quantize (32 levels),32,0.328125
+DFT(O),0.08,Gamma 0.8,0.8,0
+DFT(O),0.08,Brightness +0.2,0.2,0
+DFT(O),0.08,Rotation 1 deg,1,0.453125
+DFT(O),0.08,Rotation 5 deg,5,0.4375
+DFT(O),0.08,Rotation 45 deg,45,0.4375
+DCT(L),0.1,No Attack,0,0.015625
+DCT(L),0.1,Crop 50%,0.5,0.21875
+DCT(L),0.1,Crop 70%,0.7,0.109375
+DCT(L),0.1,Resize 50%,0.5,0.4375
+DCT(L),0.1,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.1,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.1,Quantize (32 levels),32,0.4375
+DCT(L),0.1,Gamma 0.8,0.8,0.4375
+DCT(L),0.1,Brightness +0.2,0.2,0.015625
+DCT(L),0.1,Rotation 1 deg,1,0.4375
+DCT(L),0.1,Rotation 5 deg,5,0.4375
+DCT(L),0.1,Rotation 45 deg,45,0.4375
+DWT(L),0.1,No Attack,0,0.015625
+DWT(L),0.1,Crop 50%,0.5,0.4375
+DWT(L),0.1,Crop 70%,0.7,0.390625
+DWT(L),0.1,Resize 50%,0.5,0.4375
+DWT(L),0.1,Salt&Pepper 1%,0.01,0.03125
+DWT(L),0.1,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.1,Quantize (32 levels),32,0.234375
+DWT(L),0.1,Gamma 0.8,0.8,0.40625
+DWT(L),0.1,Brightness +0.2,0.2,0.015625
+DWT(L),0.1,Rotation 1 deg,1,0.4375
+DWT(L),0.1,Rotation 5 deg,5,0.4375
+DWT(L),0.1,Rotation 45 deg,45,0.4375
+SVD(S),0.1,No Attack,0,0
+SVD(S),0.1,Crop 50%,0.5,0.5625
+SVD(S),0.1,Crop 70%,0.7,0.234375
+SVD(S),0.1,Resize 50%,0.5,0.5625
+SVD(S),0.1,Salt&Pepper 1%,0.01,0
+SVD(S),0.1,Salt&Pepper 5%,0.05,0
+SVD(S),0.1,Quantize (32 levels),32,0.5625
+SVD(S),0.1,Gamma 0.8,0.8,0.5625
+SVD(S),0.1,Brightness +0.2,0.2,0.4375
+SVD(S),0.1,Rotation 1 deg,1,0.4375
+SVD(S),0.1,Rotation 5 deg,5,0.578125
+SVD(S),0.1,Rotation 45 deg,45,0.5625
+SVD(I),0.1,No Attack,0,0
+SVD(I),0.1,Crop 50%,0.5,0.5625
+SVD(I),0.1,Crop 70%,0.7,0.234375
+SVD(I),0.1,Resize 50%,0.5,0.5625
+SVD(I),0.1,Salt&Pepper 1%,0.01,0
+SVD(I),0.1,Salt&Pepper 5%,0.05,0
+SVD(I),0.1,Quantize (32 levels),32,0.5625
+SVD(I),0.1,Gamma 0.8,0.8,0.5625
+SVD(I),0.1,Brightness +0.2,0.2,0.4375
+SVD(I),0.1,Rotation 1 deg,1,0.4375
+SVD(I),0.1,Rotation 5 deg,5,0.578125
+SVD(I),0.1,Rotation 45 deg,45,0.5625
+DFT(L),0.1,No Attack,0,0.5625
+DFT(L),0.1,Crop 50%,0.5,0.5625
+DFT(L),0.1,Crop 70%,0.7,0.5625
+DFT(L),0.1,Resize 50%,0.5,0.5625
+DFT(L),0.1,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.1,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.1,Quantize (32 levels),32,0.5625
+DFT(L),0.1,Gamma 0.8,0.8,0.5625
+DFT(L),0.1,Brightness +0.2,0.2,0.5625
+DFT(L),0.1,Rotation 1 deg,1,0.5625
+DFT(L),0.1,Rotation 5 deg,5,0.5625
+DFT(L),0.1,Rotation 45 deg,45,0.5625
+DCT(O),0.1,No Attack,0,0
+DCT(O),0.1,Crop 50%,0.5,0
+DCT(O),0.1,Crop 70%,0.7,0
+DCT(O),0.1,Resize 50%,0.5,0.515625
+DCT(O),0.1,Salt&Pepper 1%,0.01,0
+DCT(O),0.1,Salt&Pepper 5%,0.05,0
+DCT(O),0.1,Quantize (32 levels),32,0
+DCT(O),0.1,Gamma 0.8,0.8,0
+DCT(O),0.1,Brightness +0.2,0.2,0
+DCT(O),0.1,Rotation 1 deg,1,0.375
+DCT(O),0.1,Rotation 5 deg,5,0.46875
+DCT(O),0.1,Rotation 45 deg,45,0.46875
+DWT(O),0.1,No Attack,0,0
+DWT(O),0.1,Crop 50%,0.5,0.5625
+DWT(O),0.1,Crop 70%,0.7,0.234375
+DWT(O),0.1,Resize 50%,0.5,0
+DWT(O),0.1,Salt&Pepper 1%,0.01,0
+DWT(O),0.1,Salt&Pepper 5%,0.05,0
+DWT(O),0.1,Quantize (32 levels),32,0
+DWT(O),0.1,Gamma 0.8,0.8,0
+DWT(O),0.1,Brightness +0.2,0.2,0
+DWT(O),0.1,Rotation 1 deg,1,0.5625
+DWT(O),0.1,Rotation 5 deg,5,0.5625
+DWT(O),0.1,Rotation 45 deg,45,0.5625
+DFT(O),0.1,No Attack,0,0
+DFT(O),0.1,Crop 50%,0.5,0.5625
+DFT(O),0.1,Crop 70%,0.7,0.21875
+DFT(O),0.1,Resize 50%,0.5,0.5625
+DFT(O),0.1,Salt&Pepper 1%,0.01,0
+DFT(O),0.1,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.1,Quantize (32 levels),32,0.328125
+DFT(O),0.1,Gamma 0.8,0.8,0
+DFT(O),0.1,Brightness +0.2,0.2,0
+DFT(O),0.1,Rotation 1 deg,1,0.46875
+DFT(O),0.1,Rotation 5 deg,5,0.4375
+DFT(O),0.1,Rotation 45 deg,45,0.4375
+DCT(L),0.12,No Attack,0,0.015625
+DCT(L),0.12,Crop 50%,0.5,0.21875
+DCT(L),0.12,Crop 70%,0.7,0.125
+DCT(L),0.12,Resize 50%,0.5,0.4375
+DCT(L),0.12,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.12,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.12,Quantize (32 levels),32,0.4375
+DCT(L),0.12,Gamma 0.8,0.8,0.4375
+DCT(L),0.12,Brightness +0.2,0.2,0.015625
+DCT(L),0.12,Rotation 1 deg,1,0.4375
+DCT(L),0.12,Rotation 5 deg,5,0.4375
+DCT(L),0.12,Rotation 45 deg,45,0.4375
+DWT(L),0.12,No Attack,0,0.015625
+DWT(L),0.12,Crop 50%,0.5,0.4375
+DWT(L),0.12,Crop 70%,0.7,0.390625
+DWT(L),0.12,Resize 50%,0.5,0.4375
+DWT(L),0.12,Salt&Pepper 1%,0.01,0.046875
+DWT(L),0.12,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.12,Quantize (32 levels),32,0.15625
+DWT(L),0.12,Gamma 0.8,0.8,0.40625
+DWT(L),0.12,Brightness +0.2,0.2,0.015625
+DWT(L),0.12,Rotation 1 deg,1,0.4375
+DWT(L),0.12,Rotation 5 deg,5,0.4375
+DWT(L),0.12,Rotation 45 deg,45,0.4375
+SVD(S),0.12,No Attack,0,0
+SVD(S),0.12,Crop 50%,0.5,0.5625
+SVD(S),0.12,Crop 70%,0.7,0.234375
+SVD(S),0.12,Resize 50%,0.5,0.5625
+SVD(S),0.12,Salt&Pepper 1%,0.01,0
+SVD(S),0.12,Salt&Pepper 5%,0.05,0
+SVD(S),0.12,Quantize (32 levels),32,0.5625
+SVD(S),0.12,Gamma 0.8,0.8,0.5625
+SVD(S),0.12,Brightness +0.2,0.2,0.4375
+SVD(S),0.12,Rotation 1 deg,1,0.40625
+SVD(S),0.12,Rotation 5 deg,5,0.578125
+SVD(S),0.12,Rotation 45 deg,45,0.5625
+SVD(I),0.12,No Attack,0,0
+SVD(I),0.12,Crop 50%,0.5,0.5625
+SVD(I),0.12,Crop 70%,0.7,0.234375
+SVD(I),0.12,Resize 50%,0.5,0.5625
+SVD(I),0.12,Salt&Pepper 1%,0.01,0
+SVD(I),0.12,Salt&Pepper 5%,0.05,0
+SVD(I),0.12,Quantize (32 levels),32,0.5625
+SVD(I),0.12,Gamma 0.8,0.8,0.5625
+SVD(I),0.12,Brightness +0.2,0.2,0.4375
+SVD(I),0.12,Rotation 1 deg,1,0.40625
+SVD(I),0.12,Rotation 5 deg,5,0.578125
+SVD(I),0.12,Rotation 45 deg,45,0.5625
+DFT(L),0.12,No Attack,0,0.5625
+DFT(L),0.12,Crop 50%,0.5,0.5625
+DFT(L),0.12,Crop 70%,0.7,0.5625
+DFT(L),0.12,Resize 50%,0.5,0.5625
+DFT(L),0.12,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.12,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.12,Quantize (32 levels),32,0.5625
+DFT(L),0.12,Gamma 0.8,0.8,0.5625
+DFT(L),0.12,Brightness +0.2,0.2,0.5625
+DFT(L),0.12,Rotation 1 deg,1,0.5625
+DFT(L),0.12,Rotation 5 deg,5,0.5625
+DFT(L),0.12,Rotation 45 deg,45,0.5625
+DCT(O),0.12,No Attack,0,0
+DCT(O),0.12,Crop 50%,0.5,0
+DCT(O),0.12,Crop 70%,0.7,0
+DCT(O),0.12,Resize 50%,0.5,0.515625
+DCT(O),0.12,Salt&Pepper 1%,0.01,0
+DCT(O),0.12,Salt&Pepper 5%,0.05,0
+DCT(O),0.12,Quantize (32 levels),32,0
+DCT(O),0.12,Gamma 0.8,0.8,0
+DCT(O),0.12,Brightness +0.2,0.2,0
+DCT(O),0.12,Rotation 1 deg,1,0.34375
+DCT(O),0.12,Rotation 5 deg,5,0.46875
+DCT(O),0.12,Rotation 45 deg,45,0.4375
+DWT(O),0.12,No Attack,0,0
+DWT(O),0.12,Crop 50%,0.5,0.5625
+DWT(O),0.12,Crop 70%,0.7,0.234375
+DWT(O),0.12,Resize 50%,0.5,0
+DWT(O),0.12,Salt&Pepper 1%,0.01,0
+DWT(O),0.12,Salt&Pepper 5%,0.05,0
+DWT(O),0.12,Quantize (32 levels),32,0
+DWT(O),0.12,Gamma 0.8,0.8,0
+DWT(O),0.12,Brightness +0.2,0.2,0
+DWT(O),0.12,Rotation 1 deg,1,0.5625
+DWT(O),0.12,Rotation 5 deg,5,0.5625
+DWT(O),0.12,Rotation 45 deg,45,0.5625
+DFT(O),0.12,No Attack,0,0
+DFT(O),0.12,Crop 50%,0.5,0.5625
+DFT(O),0.12,Crop 70%,0.7,0.21875
+DFT(O),0.12,Resize 50%,0.5,0.5625
+DFT(O),0.12,Salt&Pepper 1%,0.01,0
+DFT(O),0.12,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.12,Quantize (32 levels),32,0.328125
+DFT(O),0.12,Gamma 0.8,0.8,0
+DFT(O),0.12,Brightness +0.2,0.2,0
+DFT(O),0.12,Rotation 1 deg,1,0.46875
+DFT(O),0.12,Rotation 5 deg,5,0.4375
+DFT(O),0.12,Rotation 45 deg,45,0.4375
+DCT(L),0.14,No Attack,0,0.015625
+DCT(L),0.14,Crop 50%,0.5,0.21875
+DCT(L),0.14,Crop 70%,0.7,0.140625
+DCT(L),0.14,Resize 50%,0.5,0.4375
+DCT(L),0.14,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.14,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.14,Quantize (32 levels),32,0.4375
+DCT(L),0.14,Gamma 0.8,0.8,0.4375
+DCT(L),0.14,Brightness +0.2,0.2,0.015625
+DCT(L),0.14,Rotation 1 deg,1,0.4375
+DCT(L),0.14,Rotation 5 deg,5,0.4375
+DCT(L),0.14,Rotation 45 deg,45,0.4375
+DWT(L),0.14,No Attack,0,0.015625
+DWT(L),0.14,Crop 50%,0.5,0.4375
+DWT(L),0.14,Crop 70%,0.7,0.390625
+DWT(L),0.14,Resize 50%,0.5,0.4375
+DWT(L),0.14,Salt&Pepper 1%,0.01,0.046875
+DWT(L),0.14,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.14,Quantize (32 levels),32,0.125
+DWT(L),0.14,Gamma 0.8,0.8,0.40625
+DWT(L),0.14,Brightness +0.2,0.2,0.015625
+DWT(L),0.14,Rotation 1 deg,1,0.4375
+DWT(L),0.14,Rotation 5 deg,5,0.4375
+DWT(L),0.14,Rotation 45 deg,45,0.4375
+SVD(S),0.14,No Attack,0,0
+SVD(S),0.14,Crop 50%,0.5,0.5625
+SVD(S),0.14,Crop 70%,0.7,0.234375
+SVD(S),0.14,Resize 50%,0.5,0.5625
+SVD(S),0.14,Salt&Pepper 1%,0.01,0
+SVD(S),0.14,Salt&Pepper 5%,0.05,0
+SVD(S),0.14,Quantize (32 levels),32,0.5625
+SVD(S),0.14,Gamma 0.8,0.8,0.5625
+SVD(S),0.14,Brightness +0.2,0.2,0.4375
+SVD(S),0.14,Rotation 1 deg,1,0.375
+SVD(S),0.14,Rotation 5 deg,5,0.578125
+SVD(S),0.14,Rotation 45 deg,45,0.5625
+SVD(I),0.14,No Attack,0,0
+SVD(I),0.14,Crop 50%,0.5,0.5625
+SVD(I),0.14,Crop 70%,0.7,0.234375
+SVD(I),0.14,Resize 50%,0.5,0.5625
+SVD(I),0.14,Salt&Pepper 1%,0.01,0
+SVD(I),0.14,Salt&Pepper 5%,0.05,0
+SVD(I),0.14,Quantize (32 levels),32,0.5625
+SVD(I),0.14,Gamma 0.8,0.8,0.5625
+SVD(I),0.14,Brightness +0.2,0.2,0.4375
+SVD(I),0.14,Rotation 1 deg,1,0.375
+SVD(I),0.14,Rotation 5 deg,5,0.578125
+SVD(I),0.14,Rotation 45 deg,45,0.5625
+DFT(L),0.14,No Attack,0,0.5625
+DFT(L),0.14,Crop 50%,0.5,0.5625
+DFT(L),0.14,Crop 70%,0.7,0.5625
+DFT(L),0.14,Resize 50%,0.5,0.5625
+DFT(L),0.14,Salt&Pepper 1%,0.01,0.5625
+DFT(L),0.14,Salt&Pepper 5%,0.05,0.5625
+DFT(L),0.14,Quantize (32 levels),32,0.5625
+DFT(L),0.14,Gamma 0.8,0.8,0.5625
+DFT(L),0.14,Brightness +0.2,0.2,0.5625
+DFT(L),0.14,Rotation 1 deg,1,0.5625
+DFT(L),0.14,Rotation 5 deg,5,0.5625
+DFT(L),0.14,Rotation 45 deg,45,0.5625
+DCT(O),0.14,No Attack,0,0
+DCT(O),0.14,Crop 50%,0.5,0
+DCT(O),0.14,Crop 70%,0.7,0
+DCT(O),0.14,Resize 50%,0.5,0.515625
+DCT(O),0.14,Salt&Pepper 1%,0.01,0
+DCT(O),0.14,Salt&Pepper 5%,0.05,0
+DCT(O),0.14,Quantize (32 levels),32,0
+DCT(O),0.14,Gamma 0.8,0.8,0
+DCT(O),0.14,Brightness +0.2,0.2,0
+DCT(O),0.14,Rotation 1 deg,1,0.34375
+DCT(O),0.14,Rotation 5 deg,5,0.453125
+DCT(O),0.14,Rotation 45 deg,45,0.421875
+DWT(O),0.14,No Attack,0,0
+DWT(O),0.14,Crop 50%,0.5,0.5625
+DWT(O),0.14,Crop 70%,0.7,0.234375
+DWT(O),0.14,Resize 50%,0.5,0
+DWT(O),0.14,Salt&Pepper 1%,0.01,0
+DWT(O),0.14,Salt&Pepper 5%,0.05,0
+DWT(O),0.14,Quantize (32 levels),32,0
+DWT(O),0.14,Gamma 0.8,0.8,0
+DWT(O),0.14,Brightness +0.2,0.2,0
+DWT(O),0.14,Rotation 1 deg,1,0.5625
+DWT(O),0.14,Rotation 5 deg,5,0.5625
+DWT(O),0.14,Rotation 45 deg,45,0.5625
+DFT(O),0.14,No Attack,0,0
+DFT(O),0.14,Crop 50%,0.5,0.5625
+DFT(O),0.14,Crop 70%,0.7,0.21875
+DFT(O),0.14,Resize 50%,0.5,0.5625
+DFT(O),0.14,Salt&Pepper 1%,0.01,0
+DFT(O),0.14,Salt&Pepper 5%,0.05,0.4375
+DFT(O),0.14,Quantize (32 levels),32,0.328125
+DFT(O),0.14,Gamma 0.8,0.8,0
+DFT(O),0.14,Brightness +0.2,0.2,0
+DFT(O),0.14,Rotation 1 deg,1,0.46875
+DFT(O),0.14,Rotation 5 deg,5,0.4375
+DFT(O),0.14,Rotation 45 deg,45,0.4375
+DCT(L),0.16,No Attack,0,0.015625
+DCT(L),0.16,Crop 50%,0.5,0.234375
+DCT(L),0.16,Crop 70%,0.7,0.125
+DCT(L),0.16,Resize 50%,0.5,0.4375
+DCT(L),0.16,Salt&Pepper 1%,0.01,0.4375
+DCT(L),0.16,Salt&Pepper 5%,0.05,0.4375
+DCT(L),0.16,Quantize (32 levels),32,0.4375
+DCT(L),0.16,Gamma 0.8,0.8,0.4375
+DCT(L),0.16,Brightness +0.2,0.2,0.015625
+DCT(L),0.16,Rotation 1 deg,1,0.4375
+DCT(L),0.16,Rotation 5 deg,5,0.4375
+DCT(L),0.16,Rotation 45 deg,45,0.4375
+DWT(L),0.16,No Attack,0,0.015625
+DWT(L),0.16,Crop 50%,0.5,0.4375
+DWT(L),0.16,Crop 70%,0.7,0.390625
+DWT(L),0.16,Resize 50%,0.5,0.4375
+DWT(L),0.16,Salt&Pepper 1%,0.01,0.046875
+DWT(L),0.16,Salt&Pepper 5%,0.05,0.28125
+DWT(L),0.16,Quantize (32 levels),32,0.046875
+DWT(L),0.16,Gamma 0.8,0.8,0.40625
+DWT(L),0.16,Brightness +0.2,0.2,0.015625
+DWT(L),0.16,Rotation 1 deg,1,0.4375
+DWT(L),0.16,Rotation 5 deg,5,0.4375
+DWT(L),0.16,Rotation 45 deg,45,0.4375
+SVD(S),0.16,No Attack,0,0
+SVD(S),0.16,Crop 50%,0.5,0.5625
+SVD(S),0.16,Crop 70%,0.7,0.234375
+SVD(S),0.16,Resize 50%,0.5,0.5625
+SVD(S),0.16,Salt&Pepper 1%,0.01,0
+SVD(S),0.16,Salt&Pepper 5%,0.05,0
+SVD(S),0.16,Quantize (32 levels),32,0.5625
+SVD(S),0.16,Gamma 0.8,0.8,0.5625
+SVD(S),0.16,Brightness +0.2,0.2,0.4375
+SVD(S),0.16,Rotation 1 deg,1,0.359375
+SVD(S),0.16,Rotation 5 deg,5,0.578125
+SVD(S),0.16,Rotation 45 deg,45,0.5625
+SVD(I),0.16,No Attack,0,0
+SVD(I),0.16,Crop 50%,0.5,0.5625
+SVD(I),0.16,Crop 70%,0.7,0.234375
+SVD(I),0.16,Resize 50%,0.5,0.5625
+SVD(I),0.16,Salt&Pepper 1%,0.01,0
+SVD(I),0.16,Salt&Pepper 5%,0.05,0
+SVD(I),0.16,Quantize (32 levels),32,0.5625
+SVD(I),0.16,Gamma 0.8,0.8,0.5625
+SVD(I),0.16,Brightness +0.2,0.2,0.4375

@@ -4,13 +4,10 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(binding = 0, rgba32f) uniform readonly image2D img_original;
 layout(binding = 1, rgba32f) uniform readonly image2D img_marked;
 layout(std430, binding = 2) buffer ExtractedBits { uint out_bits[]; };
-layout(std430, binding = 3) buffer PatternBuffer { float PatternBuffer[]; } pattern_buf;
 
 uniform uint Width, Height;
 uniform uint BitSize;
-uniform uint CoefficientsToUse;
 
-// 1D Haar DWT 함수
 void Haar1D(in float src[8], out float dst[8]) {
     for(int i=0; i<4; ++i) {
         dst[i]   = (src[2*i] + src[2*i+1]) * 0.5;
@@ -22,9 +19,12 @@ shared float BlockOrg[8][8];
 shared float BlockMark[8][8];
 
 void main() {
-    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    // Legacy는 WorkGroup 단위로 블록 좌표 계산 (중요!)
+    ivec3 gid = ivec3(gl_WorkGroupID); 
     ivec3 tid = ivec3(gl_LocalInvocationID);
-    uint bx = gid.x * 8; uint by = gid.y * 8;
+    
+    uint bx = gid.x * 8; 
+    uint by = gid.y * 8;
 
     // 1. 로드 & Y 변환
     vec3 p1 = imageLoad(img_original, ivec2(bx+tid.x, by+tid.y)).rgb;
@@ -34,50 +34,43 @@ void main() {
     barrier();
 
     // 2. DWT 수행 (Row -> Col)
-    // 각 스레드가 행/열 하나씩 맡아서 처리하면 빠름
-    
-    // Row Pass
     float rowO[8], rowM[8], resO[8], resM[8];
     for(int i=0; i<8; ++i) { rowO[i] = BlockOrg[tid.y][i]; rowM[i] = BlockMark[tid.y][i]; }
     Haar1D(rowO, resO); Haar1D(rowM, resM);
-    barrier(); // 쓰기 전 동기화
+    barrier(); 
     for(int i=0; i<8; ++i) { BlockOrg[tid.y][i] = resO[i]; BlockMark[tid.y][i] = resM[i]; }
     barrier();
 
-    // Col Pass
     for(int i=0; i<8; ++i) { rowO[i] = BlockOrg[i][tid.x]; rowM[i] = BlockMark[i][tid.x]; }
     Haar1D(rowO, resO); Haar1D(rowM, resM);
     barrier();
     for(int i=0; i<8; ++i) { BlockOrg[i][tid.x] = resO[i]; BlockMark[i][tid.x] = resM[i]; }
     barrier();
 
-    // 3. Correlation (스레드 0,0이 독박)
+    // 3. 추출 (스레드 0,0 단독 수행)
     if (tid.x == 0 && tid.y == 0) {
-        float correlation = 0.0;
         uint numBlocksX = (Width + 8 - 1) / 8;
         uint blockIdx = gid.y * numBlocksX + gid.x;
         
-        // HH 밴드 시작점 (4, 4) 부터 CoefficientsToUse 만큼 순회
-        // Embed 코드 로직: v_hh * 4 + u_hh = i
-        // u = 4 + (i % 4), v = 4 + (i / 4)
-        
-        for(uint i=0; i < CoefficientsToUse; ++i) {
-            uint u = 4 + (i % 4);
-            uint v = 4 + (i / 4);
-            if (u >= 8 || v >= 8) break;
+        // ★ 단일 타겟 (4, 4) - Embed와 일치시킴
+        uint u = 4;
+        uint v = 4;
 
-            float val_org  = BlockOrg[v][u];
-            float val_mark = BlockMark[v][u];
-            float diff = val_mark - val_org;
-            
-            uint patIdx = blockIdx * CoefficientsToUse + i;
-            float pattern = pattern_buf.PatternBuffer[patIdx];
-            
-            if (abs(val_org) > 1e-5) correlation += diff * pattern * sign(val_org);
-            else                     correlation += diff * pattern;
-        }
+        float val_org  = BlockOrg[v][u];
+        float val_mark = BlockMark[v][u];
+        float diff = val_mark - val_org;
         
+        // ★ 패턴 1.0 고정
+        float pattern = 1.0;
+        float correlation = 0.0;
+
+        // 하이브리드 로직 대응
+        if (abs(val_org) < 1e-5) correlation = diff * pattern;
+        else                     correlation = diff * pattern * sign(val_org);
+        
+        // 부등호 방향 확인 (정상: >= 0.0)
         uint detected = (correlation >= 0.0) ? 1 : 0;
+        
         if (blockIdx < BitSize) out_bits[blockIdx] = detected;
     }
 }

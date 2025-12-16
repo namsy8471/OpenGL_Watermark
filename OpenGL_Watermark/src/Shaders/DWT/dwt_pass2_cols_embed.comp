@@ -1,127 +1,125 @@
 #version 430 core
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// --- 상수 ---
 #define BLOCK_SIZE 8
 #define HALF_BLOCK_SIZE 4
 #define HAAR_SCALE 0.5f
 
-// --- 입출력 ---
 layout(binding = 0, rgba32f) uniform readonly image2D IntermediateBuffer;
 layout(binding = 1, rgba32f) uniform writeonly image2D DWTOutput;
 
-// --- 버퍼 (SSBO) ---
 layout(std430, binding = 2) buffer BitstreamBuffer { uint Bitstream[]; } bitstream_buf;
-layout(std430, binding = 3) buffer PatternBuffer { float PatternBuffer[]; } pattern_buf;
+// 패턴 버퍼 사용 안 함 (1.0 고정)
 
-// --- 유니폼 (C++에서 설정) ---
 uniform float EmbeddingStrength;
-uniform uint CoefficientsToUse;
 uniform uint Width;
 uniform uint Height;
 uniform uint BitLength;
-uniform uint Embed; // 0 = 끄기, 1 = 켜기
+uniform uint Embed;
 
-// --- 공유 메모리 ---
 shared vec3 SharedBlockRGB[BLOCK_SIZE][BLOCK_SIZE];
 
 void main()
 {
     ivec3 groupID = ivec3(gl_WorkGroupID);
-    ivec3 groupThreadID = ivec3(gl_LocalInvocationID);
+    ivec3 tid = ivec3(gl_LocalInvocationID);
     
     uint blockX = groupID.x * BLOCK_SIZE;
     uint blockY = groupID.y * BLOCK_SIZE;
-    uint threadX = groupThreadID.x; // 열 u
-    uint threadY = groupThreadID.y; // 행 v
+    uint threadX = tid.x; 
+    uint threadY = tid.y;
 
-    // 1. 전역 메모리 -> 공유 메모리 로드 (열 기준)
+    // 1. 로드
     uint loadX = blockX + threadX;
     uint loadY = blockY + threadY;
-    vec3 loadedRGB = vec3(0, 0, 0);
-    if (loadX < Width && loadY < Height)
-    {
+    vec3 loadedRGB = vec3(0);
+    if (loadX < Width && loadY < Height) {
         loadedRGB = imageLoad(IntermediateBuffer, ivec2(loadX, loadY)).rgb;
     }
     SharedBlockRGB[threadY][threadX] = loadedRGB;
     barrier();
 
-    // 2. 공유 메모리 -> 로컬 배열 로드 (열 기준)
+    // 2. Transpose & DWT (Column transform implies working on Rows first in shared mem logic usually, 
+    // but assuming pass1 did rows, this pass does cols. 
+    // This part depends on your specific implementation of Pass 2. 
+    // Assuming standard Pass 2 structure provided before.)
+    
     float colDataR[BLOCK_SIZE], colDataG[BLOCK_SIZE], colDataB[BLOCK_SIZE];
-    for (uint i = 0; i < BLOCK_SIZE; ++i)
-    {
+    for (uint i = 0; i < BLOCK_SIZE; ++i) {
         colDataR[i] = SharedBlockRGB[i][threadX].r;
         colDataG[i] = SharedBlockRGB[i][threadX].g;
         colDataB[i] = SharedBlockRGB[i][threadX].b;
     }
     
-    // 3. ★ Haar DWT 1D (Inlined) ★
+    // Haar DWT 1D
     float tempR[BLOCK_SIZE], tempG[BLOCK_SIZE], tempB[BLOCK_SIZE];
-    for (uint i = 0; i < HALF_BLOCK_SIZE; ++i)
-    {
+    for (uint i = 0; i < HALF_BLOCK_SIZE; ++i) {
         float aR = colDataR[2 * i]; float bR = colDataR[2 * i + 1];
         float aG = colDataG[2 * i]; float bG = colDataG[2 * i + 1];
         float aB = colDataB[2 * i]; float bB = colDataB[2 * i + 1];
         
-        tempR[i] = (aR + bR) * HAAR_SCALE; // Approx
+        tempR[i] = (aR + bR) * HAAR_SCALE;
         tempG[i] = (aG + bG) * HAAR_SCALE;
         tempB[i] = (aB + bB) * HAAR_SCALE;
         
-        tempR[i + HALF_BLOCK_SIZE] = (aR - bR) * HAAR_SCALE; // Detail
+        tempR[i + HALF_BLOCK_SIZE] = (aR - bR) * HAAR_SCALE;
         tempG[i + HALF_BLOCK_SIZE] = (aG - bG) * HAAR_SCALE;
         tempB[i + HALF_BLOCK_SIZE] = (aB - bB) * HAAR_SCALE;
     }
 
-    // 4. 최종 DWT 계수
     vec3 finalDwtCoeffRGB = vec3(tempR[threadY], tempG[threadY], tempB[threadY]);
 
-    // 5. 수정된 임베딩 로직 (Single Coefficient + Hybrid)
-    if (Embed == 1) // CoefficientsToUse 루프 제거 (단일 타겟)
+    // 5. 임베딩 (Y 기준 통합 제어)
+    if (Embed == 1) 
     {
-        // [타겟 위치 선정]
-        // 최적화 코드의 m[0][1] (LH밴드)와 유사한 위치를 잡습니다.
-        // 8x8 블록에서 절반(4) 이상은 High Frequency입니다.
-        // u(열)=4 (High 시작점), v(행)=0 (Low 시작점) -> LH 밴드의 가장 강한 성분
-        
-        if (threadX == 4 && threadY == 0) 
+        // 타겟: (4, 4) HH 밴드 (Legacy Extract와 좌표 일치 필수!)
+        if (threadX == 4 && threadY == 4) 
         {
             uint numBlocksX = (Width + BLOCK_SIZE - 1) / BLOCK_SIZE;
             uint blockLinearIndex = groupID.y * numBlocksX + groupID.x;
 
             if (blockLinearIndex < BitLength)
             {
-                // 비트 가져오기
                 uint bit = bitstream_buf.Bitstream[blockLinearIndex];
-                float bit_sign = (bit == 1) ? 1.0f : -1.0f;
+                // 1이면 증폭(1+a), 0이면 감쇄(1-a)
                 
-                // 패턴 버퍼 대신 1.0 사용 (단일 계수 비교를 위해)
-                float pattern_value = 1.0; 
-                
-                // 현재 픽셀(계수) 값
-                float val = finalDwtCoeffRGB.r; // R 채널만 예시로 사용 (흑백이면 다 같음)
-                
-                // ★ [핵심] 하이브리드 로직 적용 (Additive + Multiplicative)
-                float alpha = EmbeddingStrength * 0.245; // 강도 스케일링
+                float alpha = EmbeddingStrength * 0.0011; 
 
-                // 값이 너무 작으면(0이면) 더하기, 크면 곱하기
-                if (abs(val) < 1e-5) {
-                    // 덧셈 (Additive): 0인 영역에도 강제로 값을 넣음
-                    // DWT 계수는 작으므로 0.5 정도 가중치 줌
-                    finalDwtCoeffRGB += (alpha * 0.5 * bit_sign * pattern_value);
-                } else {
-                    // 곱셈 (Multiplicative)
-                    finalDwtCoeffRGB *= (1.0f + alpha * bit_sign * pattern_value);
+                // 1. Y 계수 계산
+                float Y_coeff = 0.299 * finalDwtCoeffRGB.r + 
+                                0.587 * finalDwtCoeffRGB.g + 
+                                0.114 * finalDwtCoeffRGB.b;
+
+                // 2. 목표 Y값 계산
+                float Y_target = Y_coeff;
+                
+                // Additive (0 근처)
+                if (abs(Y_coeff) < 1e-5) {
+                    // 0일 때는 강제로 값을 만듦
+                    // bit=1 -> 양수, bit=0 -> 음수
+                    float w = (bit == 1) ? 1.0 : -1.0;
+                    Y_target += (alpha * 0.5 * w);
+                } 
+                // Multiplicative
+                else {
+                    // bit=1 -> 절대값 증가, bit=0 -> 절대값 감소
+                    if (bit == 1) Y_target = Y_coeff * (1.0 + alpha);
+                    else          Y_target = Y_coeff * (1.0 - alpha);
                 }
+
+                // 3. 차이 적용
+                float diff = Y_target - Y_coeff;
+                finalDwtCoeffRGB.r += diff;
+                finalDwtCoeffRGB.g += diff;
+                finalDwtCoeffRGB.b += diff;
             }
         }
-
     }
 
-    // 6. 최종 결과를 DWTOutput에 쓰기
+    // 4. 저장
     uint writeX = blockX + threadX;
     uint writeY = blockY + threadY;
-    if (writeX < Width && writeY < Height)
-    {
+    if (writeX < Width && writeY < Height) {
         imageStore(DWTOutput, ivec2(writeX, writeY), vec4(finalDwtCoeffRGB, 0.0));
     }
 }

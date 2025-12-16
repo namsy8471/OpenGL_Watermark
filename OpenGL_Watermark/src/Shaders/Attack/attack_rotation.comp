@@ -1,0 +1,43 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+layout(rgba32f, binding = 0) readonly uniform image2D img_in;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_out;
+
+uniform float Angle; // 회전 각도 (도 단위, Degree)
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(img_in);
+    
+    if (pos.x >= size.x || pos.y >= size.y) return;
+
+    // 회전 중심 (이미지 중앙)
+    vec2 center = vec2(size) * 0.5;
+    
+    // 라디안 변환
+    float rad = radians(Angle);
+    float c = cos(rad);
+    float s = sin(rad);
+
+    // 역방향 매핑 (Target -> Source 좌표 계산)
+    // 현재 픽셀(pos)이 원본의 어디에서 왔는지 계산해야 구멍이 안 생김
+    vec2 p = vec2(pos) - center;
+    
+    // 회전 행렬 (역회전 적용: -Angle)
+    // x' = x cos - y sin
+    // y' = x sin + y cos
+    // 여기서 역회전이니까 sin 부호 반대
+    float srcX = p.x * c + p.y * s + center.x;
+    float srcY = -p.x * s + p.y * c + center.y;
+
+    vec4 color = vec4(0, 0, 0, 1); // 기본 검은색 (범위 밖)
+
+    // 원본 범위 안에 있을 때만 샘플링 (Nearest Neighbor)
+    if (srcX >= 0.0 && srcX < float(size.x) && 
+        srcY >= 0.0 && srcY < float(size.y)) 
+    {
+        color = imageLoad(img_in, ivec2(round(srcX), round(srcY)));
+    }
+
+    imageStore(img_out, pos, color);
+}

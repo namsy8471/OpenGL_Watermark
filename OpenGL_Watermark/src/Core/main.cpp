@@ -56,6 +56,34 @@ struct ImageMetrics {
     double ssim;
 };
 
+// [New] 공격 유형 정의
+enum class AttackType {
+    NONE = 0,
+    CROP_CENTER,    // 중앙 크롭 (비율)
+    RESIZE_SCALE,   // 리사이즈 (비율)
+    NOISE_SNP,      // 소금-후추 노이즈 (강도)
+    QUANTIZATION,   // 색상 양자화 (단계)
+    GAMMA_CORRECT,  // 감마 보정 (값)
+    BRIGHTNESS,      // 밝기 조절 (값)
+	ROTATION	   // 회전 (각도)
+};
+
+// [New] 공격 설정 구조체
+struct AttackConfig {
+    AttackType type;
+    float param;      // 공격 강도 (예: 0.5)
+    std::string name; // CSV 출력용 이름 (예: "Crop_50%")
+};
+
+// [New] 공격 결과 저장 구조체
+struct AttackResult {
+    std::string algoName;
+    std::string attackName;
+    float param;
+    float ber;
+    float recoveredBER;
+    double psnr; // 공격받은 이미지의 화질
+};
 
 // 결과 저장 구조체 (SSIM 필드 추가)
 struct BenchmarkResult {
@@ -260,6 +288,44 @@ void SaveResultsToCSV(const std::vector<BenchmarkResult>& results, const char* f
     }
     file.close();
     std::cout << "Results saved to " << filename << std::endl;
+}
+
+// [New] 다수결 투표를 통한 서명 복구 및 BER 계산
+// extracted: 전체 이미지에서 추출된 비트 스트림 (수만 개)
+// originalSignature: 원본 서명 (64개)
+// msgLen: 서명 길이 (64)
+float CalculateRecoveredBER(const std::vector<uint>& extracted, const std::vector<uint>& originalSignature, int msgLen) {
+    if (extracted.empty() || originalSignature.empty()) return 1.0f;
+
+    // 1. 투표함 초기화 (0에 투표한 수, 1에 투표한 수)
+    std::vector<int> vote0(msgLen, 0);
+    std::vector<int> vote1(msgLen, 0);
+
+    // 2. 전체 블록을 순회하며 투표
+    for (size_t i = 0; i < extracted.size(); ++i) {
+        int signatureIdx = i % msgLen; // 서명의 몇 번째 비트인지 확인
+
+        if (extracted[i] == 0) vote0[signatureIdx]++;
+        else                   vote1[signatureIdx]++;
+    }
+
+    // 3. 개표 (다수결로 복구)
+    std::vector<uint> recoveredSignature(msgLen);
+    for (int i = 0; i < msgLen; ++i) {
+        // 1이 더 많으면 1, 아니면 0 (동점이면 0 처리)
+        if (vote1[i] > vote0[i]) recoveredSignature[i] = 1;
+        else                     recoveredSignature[i] = 0;
+    }
+
+    // 4. 복구된 서명과 원본 서명 비교 (진짜 BER)
+    int errorCount = 0;
+    for (int i = 0; i < msgLen; ++i) {
+        if (recoveredSignature[i] != originalSignature[i]) {
+            errorCount++;
+        }
+    }
+
+    return (float)errorCount / (float)msgLen;
 }
 
 // C++ 구현부
@@ -723,6 +789,107 @@ void Run_Legacy_Extraction(GLuint progExtract, GLuint texOriginal, GLuint texMar
     glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 }
 
+// [Legacy DFT 전용 추출 파이프라인]
+void Run_Full_FFT_Extraction(
+    GLuint progPad, GLuint progReorder, GLuint progFFT, GLuint progExtractGlobal,
+    GLuint texOrg, GLuint texMark, // 입력: 원본, 마킹 이미지 (Spatial)
+    GLuint texPing, GLuint texPong, // 작업용: FFT 변환에 사용 (2048x2048 RG32F)
+    GLuint texBackupFreq,           // 작업용: 원본의 주파수 데이터를 잠시 보관할 곳 (tex_DFT_Complex 사용)
+    GLuint bufExtracted, uint width, uint height, uint bitSize)
+{
+    uint paddedSize = std::max(NextPowerOfTwo(width), NextPowerOfTwo(height));
+
+    // ---------------------------------------------------------
+    // 1. 원본(Original) 이미지 -> 주파수 변환
+    // ---------------------------------------------------------
+    // 1-1. Padding (Src -> Ping)
+    glUseProgram(progPad);
+    glUniform1ui(glGetUniformLocation(progPad, "SrcWidth"), width);
+    glUniform1ui(glGetUniformLocation(progPad, "SrcHeight"), height);
+    glUniform1ui(glGetUniformLocation(progPad, "PaddedSize"), paddedSize);
+    glBindImageTexture(0, texOrg, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindImageTexture(1, texPing, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RG32F);
+    glDispatchCompute((paddedSize + 31) / 32, (paddedSize + 31) / 32, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    // 1-2. FFT (Ping -> Pong -> Ping)
+    // Horizontal
+    Run_FFT_Pass(progReorder, progFFT, texPing, texPong, paddedSize, 0, 0);
+    // Vertical (결과는 Ping에 저장됨)
+    Run_FFT_Pass(progReorder, progFFT, texPong, texPing, paddedSize, 1, 0);
+
+    // 1-3. 원본 주파수 데이터 백업 (Ping -> Backup)
+    // 마킹된 이미지 변환할 때 Ping을 또 써야 하므로, 원본 결과를 대피시킴
+    glCopyImageSubData(texPing, GL_TEXTURE_2D, 0, 0, 0, 0,
+        texBackupFreq, GL_TEXTURE_2D, 0, 0, 0, 0,
+        paddedSize, paddedSize, 1);
+    glMemoryBarrier(GL_ALL_BARRIER_BITS); // 복사 완료 대기
+
+    // ---------------------------------------------------------
+    // 2. 마킹(Marked) 이미지 -> 주파수 변환
+    // ---------------------------------------------------------
+    // 2-1. Padding (Mark -> Ping)
+    glUseProgram(progPad);
+    glBindImageTexture(0, texMark, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindImageTexture(1, texPing, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RG32F);
+    glDispatchCompute((paddedSize + 31) / 32, (paddedSize + 31) / 32, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    // 2-2. FFT
+    Run_FFT_Pass(progReorder, progFFT, texPing, texPong, paddedSize, 0, 0);
+    Run_FFT_Pass(progReorder, progFFT, texPong, texPing, paddedSize, 1, 0);
+    // 결과는 Ping에 있음 (Marked Frequency)
+
+    // ---------------------------------------------------------
+    // 3. 비교 및 추출 (Global Extract Shader)
+    // ---------------------------------------------------------
+    glUseProgram(progExtractGlobal);
+    glUniform1ui(glGetUniformLocation(progExtractGlobal, "PaddedSize"), paddedSize);
+    glUniform1ui(glGetUniformLocation(progExtractGlobal, "BitSize"), bitSize);
+
+    // Binding 0: 원본 주파수 (백업해둔 것)
+    glBindImageTexture(0, texBackupFreq, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RG32F);
+    // Binding 1: 마킹 주파수 (방금 변환한 것)
+    glBindImageTexture(1, texPing, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RG32F);
+    // Binding 2: 결과 버퍼
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bufExtracted);
+
+    glDispatchCompute((paddedSize + 31) / 32, (paddedSize + 31) / 32, 1);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+}
+
+// [New] 공격 실행 헬퍼 함수
+void Run_Attack_Shader(GLuint prog, GLuint texIn, GLuint texOut, int w, int h, float param, AttackType type) {
+    glUseProgram(prog);
+
+    // 공격 유형별 유니폼 설정 (셰이더 변수명에 맞춤)
+    if (type == AttackType::CROP_CENTER) glUniform1f(glGetUniformLocation(prog, "Ratio"), param);
+    else if (type == AttackType::RESIZE_SCALE) glUniform1f(glGetUniformLocation(prog, "Scale"), param);
+    else if (type == AttackType::NOISE_SNP) glUniform1f(glGetUniformLocation(prog, "Strength"), param);
+    else if (type == AttackType::QUANTIZATION) glUniform1f(glGetUniformLocation(prog, "Quality"), param);
+    else if (type == AttackType::GAMMA_CORRECT) glUniform1f(glGetUniformLocation(prog, "Gamma"), param);
+    else if (type == AttackType::BRIGHTNESS) glUniform1f(glGetUniformLocation(prog, "Gain"), param);
+    else if (type == AttackType::ROTATION) glUniform1f(glGetUniformLocation(prog, "Angle"), param);
+
+    glBindImageTexture(0, texIn, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F);
+    glBindImageTexture(1, texOut, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+
+    glDispatchCompute((w + 31) / 32, (h + 31) / 32, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+}
+
+// [New] 공격 결과 CSV 저장
+void SaveAttackResultsToCSV(const std::vector<AttackResult>& results, const char* filename) {
+    std::ofstream file(filename);
+    file << "Algorithm,Attack Type,Parameter,BER,Recovered BER,PSNR (Attacked)\n";
+    for (const auto& res : results) {
+        file << res.algoName << "," << res.attackName << "," << res.param << ","
+            << res.ber << "," << res.recoveredBER << "," << res.psnr << "\n";
+    }
+    file.close();
+    std::cout << "[System] Attack results saved to " << filename << std::endl;
+}
+
 // -----------------------------------------------------------------------------
 // 3. 전역 리소스 관리자
 // -----------------------------------------------------------------------------
@@ -733,8 +900,8 @@ struct ResourceManager {
     GLuint tex_DWT_Intermediate = 0, tex_DWT_Output = 0, tex_DWT_Final = 0;
     GLuint tex_SVD_Y = 0, tex_SVD_CbCr = 0, tex_SVD_AtA = 0;
     GLuint tex_SVD_V = 0, tex_SVD_Sigma = 0, tex_SVD_U = 0, tex_SVD_ReconY = 0, tex_SVD_Final = 0;
-
     GLuint tex_Opt_Final = 0;
+
     // [DFT용 텍스처 추가]
     // 복소수 저장을 위해 RG32F 포맷 사용 (R: Real, G: Imaginary)
     GLuint tex_DFT_Complex = 0;
@@ -742,11 +909,14 @@ struct ResourceManager {
     GLuint tex_FFT_Ping = 0; // 핑 (작업용 1)
     GLuint tex_FFT_Pong = 0; // 퐁 (작업용 2)
 
+    GLuint tex_Attacked = 0; // ★ [추가] 공격받은 이미지 저장용
+
 
     GLuint buf_Bitstream = 0, buf_Pattern = 0;
     GLuint buf_ExtractedBits = 0;
     uint numBlocks = 0;
     uint numBlocks4x4 = 0; // for optimized/extraction
+
 
     void Release() {
         // (기존 삭제 코드 유지 + DFT 추가)
@@ -757,6 +927,7 @@ struct ResourceManager {
         glDeleteTextures(20, textures);
         glDeleteBuffers(1, &buf_Bitstream);
         glDeleteBuffers(1, &buf_Pattern);
+        glDeleteTextures(1, &tex_Attacked);
     }
 
     void Resize(int width, int height, uint coeffsToUse) {
@@ -794,7 +965,7 @@ struct ResourceManager {
 
 		createTex(tex_DFT_Final, GL_RGBA32F); // DFT 최종 출력 텍스처
 		createTex(tex_Opt_Final, GL_RGBA32F); // Optimized One-Shot 최종 출력 텍스처
-        
+        createTex(tex_Attacked, GL_RGBA32F);
 
         // [FFT 전용 텍스처 생성]
 		// 가로/세로 중 큰 쪽을 기준으로 2의 제곱수를 구함 (예: 1920 -> 2048)
@@ -846,7 +1017,22 @@ struct ResourceManager {
         numBlocks4x4 = ((width + 3) / 4) * ((height + 3) / 4); // For One-Shot & Extraction
 
         std::vector<uint> bitstreamData(numBlocks4x4);
-        for (size_t i = 0; i < numBlocks4x4; ++i) bitstreamData[i] = (rand() % 2); // Random bits
+        //for (size_t i = 0; i < numBlocks4x4; ++i) bitstreamData[i] = (rand() % 2); // Random bits
+        // 1. 짧은 서명(Signature) 정의 (예: 64비트)
+        // 실제로는 "COPYRIGHT" 같은 의미 있는 데이터나 로고 비트맵이 됩니다.
+        int messageLength = 64;
+        std::vector<uint> signature(messageLength);
+
+        // 서명 생성 (여기서는 랜덤으로 만들지만, 고정된 패턴이어도 됨)
+        // 매번 실행할 때마다 달라지게 하려면 rand(), 고정하려면 하드코딩
+        for (int k = 0; k < messageLength; ++k) signature[k] = (rand() % 2);
+
+        // 2. 전체 버퍼에 서명을 반복해서 채워 넣기 (Tiling)
+        // 블록이 100만 개여도, 64비트 패턴이 계속 반복됩니다.
+        for (size_t i = 0; i < numBlocks4x4; ++i) {
+            bitstreamData[i] = signature[i % messageLength];
+        }
+
 
         std::vector<float> patternData(numBlocks * coeffsToUse);
         for (size_t i = 0; i < patternData.size(); ++i) patternData[i] = ((rand() % 2) == 0) ? 1.0f : -1.0f;
@@ -943,6 +1129,7 @@ int main()
 
     GLuint extractDctSSProg = loadComputeShader("Extraction/extract_dct_ss.comp");
     GLuint extractDwtSSProg = loadComputeShader("Extraction/extract_dwt_ss.comp");
+    GLuint extractDftGlobalProg = loadComputeShader("Extraction/extract_dft_global.comp");
 
     // Resource Manager
     ResourceManager resMgr;
@@ -972,6 +1159,26 @@ int main()
     double g_SweepCurrentAlpha = 0.0f;
     int g_SweepAlgoIndex = 0; // 0~6 (모든 알고리즘 순회)
     int g_SweepResIndex = 0; // 0: FHD, 1: 4K
+    bool g_RunAttackTest = false;
+    std::vector<AttackResult> g_AttackResults;
+
+    bool g_RunAlphaAttackSweep = false;
+
+    // 공격 시나리오 정의
+    std::vector<AttackConfig> g_AttackScenarios = {
+        { AttackType::NONE, 0.0f, "No Attack" },
+        { AttackType::CROP_CENTER, 0.5f, "Crop 50%" },
+        { AttackType::CROP_CENTER, 0.7f, "Crop 70%" }, // 30% 잘림
+        { AttackType::RESIZE_SCALE, 0.5f, "Resize 50%" },
+        { AttackType::NOISE_SNP, 0.01f, "Salt&Pepper 1%" },
+        { AttackType::NOISE_SNP, 0.05f, "Salt&Pepper 5%" },
+        { AttackType::QUANTIZATION, 32.0f, "Quantize (32 levels)" },
+        { AttackType::GAMMA_CORRECT, 0.8f, "Gamma 0.8" },
+        { AttackType::BRIGHTNESS, 0.2f, "Brightness +0.2" },
+        { AttackType::ROTATION, 1.0f, "Rotation 1 deg" },   // 미세 회전 (격자 파괴)
+        { AttackType::ROTATION, 5.0f, "Rotation 5 deg" },   // 소규모 회전
+        { AttackType::ROTATION, 45.0f, "Rotation 45 deg" }  // 대규모 회전
+    };
 
     std::vector<BenchmarkResult> g_Results;
     GpuTimer gpuTimer;
@@ -1027,6 +1234,19 @@ int main()
             std::cout << "[System] Starting Alpha Sweep..." << std::endl;
         }
         ImGui::Text("Finds optimal Alpha for PSNR ~40dB");
+
+        // [Main Loop 내부 UI 부분]
+        if (ImGui::Button("Run Attack Robustness Test")) {
+            g_RunAttackTest = true;
+            g_AttackResults.clear();
+            std::cout << "[System] Starting Attack Simulation..." << std::endl;
+        }
+
+        if (ImGui::Button("Run Alpha-Attack Sweep (Ultimate Test)")) {
+            g_RunAlphaAttackSweep = true;
+            g_AttackResults.clear(); // 결과 초기화
+            std::cout << "[System] Starting Alpha-Attack Sweep..." << std::endl;
+        }
 
         ImGui::End();
 
@@ -1185,29 +1405,49 @@ int main()
             // 여기서는 최적화 셰이더와 동일한 논리로 동작하는 기본 추출기를 사용하여 BER 측정 시도.
             GLuint finalTex = 0;
             // 텍스처 ID 매핑 (반복문 밖으로 뺌)
-            if (i == 0) finalTex = resMgr.tex_Final; else if (i == 1) finalTex = resMgr.tex_DWT_Final; else if (i == 2 || i == 3) finalTex = resMgr.tex_SVD_Final; else if (i == 4) finalTex = resMgr.tex_DFT_Final; else finalTex = resMgr.tex_Opt_Final;
+            if (i == 0) finalTex = resMgr.tex_Final;
+        	else if (i == 1) finalTex = resMgr.tex_DWT_Final;
+        	else if (i == 2 || i == 3) finalTex = resMgr.tex_SVD_Final;
+        	else if (i == 4) finalTex = resMgr.tex_DFT_Final;
+        	else finalTex = resMgr.tex_Opt_Final;
 
-            if (i == 0)
+			if (i == 0) // DCT Legacy
             {
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern); // 패턴 버퍼 필수
                 Run_Legacy_Extraction(extractDctSSProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks);
             }
-            else if (i == 1)
+            else if (i == 1) // DWT Legacy
             {
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern); // 패턴 버퍼 필수
                 Run_Legacy_Extraction(extractDwtSSProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks);
             }
-                
-            else if(i == 5) { // DCT
-                Run_Extraction_Pipeline(extractDctProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
-            }
-            else if (i == 6) { // DWT
-                Run_Extraction_Pipeline(extractDwtProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
-            }
+
             else if (i == 2 || i == 3) { // SVD
                 Run_Extraction_Pipeline(extractSvdProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
             }
-            else if (i == 4 || i == 7) { // DFT
+
+            else if (i == 4) { // DFT Legacy
+                Run_Full_FFT_Extraction(
+                    dftPadProg, dftReorderProg, dftCoreProg, extractDftGlobalProg, // 셰이더들
+                    resMgr.tex_Source, finalTex,       // 입력 이미지 (원본, 마킹됨)
+                    resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, // 작업용
+                    resMgr.tex_DFT_Complex,            // 백업용 (ResourceManager에 추가되어 있음)
+                    resMgr.buf_ExtractedBits,
+                    currentWidth, currentHeight,
+                    32768 // ★ 중요: Embed 셰이더의 상수(32768)와 일치시켜야 함.
+                          // (Legacy Embed에서 bitIdx = linearIdx % 32768 했으므로 여기서도 동일하게)
+                );  
+            }
+
+            else if(i == 5) { // DCT Optimized
+                Run_Extraction_Pipeline(extractDctProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+            }
+            else if (i == 6) { // DWT Optimized
+                Run_Extraction_Pipeline(extractDwtProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+            }
+            
+			else if (i == 7) // DFT Optimized
+            {
                 Run_Extraction_Pipeline(extractDftProg, resMgr.tex_Source, finalTex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
             }
 
@@ -1263,9 +1503,9 @@ int main()
             std::cout << "Algo: " << i << " | Alpha: " << g_SweepCurrentAlpha << " | PSNR: " << m.psnr << '\n';
 
             // 6. 다음 단계로 이동
-            g_SweepCurrentAlpha += 0.05f; // 0.001 단위 증가
+            g_SweepCurrentAlpha += 0.1f; // 0.001 단위 증가
 
-            if (g_SweepCurrentAlpha > 1.0001f) { // 부동소수점 오차 고려
+            if (g_SweepCurrentAlpha > 2.0001f) { // 부동소수점 오차 고려
                 g_SweepCurrentAlpha = 0.0f;
                 g_SweepAlgoIndex++; // 다음 알고리즘으로
 
@@ -1286,6 +1526,341 @@ int main()
                     }
                 }
             }
+        }
+
+        // [New] 공격 벤치마크 실행 로직
+        else if (g_RunAttackTest) {
+
+            // 1. 공격용 셰이더 로드 (최초 1회)
+            static GLuint atkCrop = loadComputeShader("Attack/attack_crop.comp");
+            static GLuint atkResize = loadComputeShader("Attack/attack_resize.comp");
+            static GLuint atkNoise = loadComputeShader("Attack/attack_noise.comp");
+            static GLuint atkQuant = loadComputeShader("Attack/attack_quantize.comp");
+            static GLuint atkGamma = loadComputeShader("Attack/attack_gamma.comp");
+            static GLuint atkBright = loadComputeShader("Attack/attack_brightness.comp");
+            static GLuint atkRot = loadComputeShader("Attack/attack_rotation.comp");
+
+            // 2. 테스트할 알고리즘 목록 (원하는 것만 선택 가능)
+            int targetAlgos[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+            // 0:DCT_Leg, 1:DWT_Leg, 2:SVD_Std, 3:SVD_Imp, 4:DFT_Leg, 5:DCT_Opt, 6:DWT_Opt, 7:DFT_Opt
+            std::string algoNames[] = { "DCT(L)", "DWT(L)", "SVD(S)", "SVD(I)", "DFT(L)", "DCT(O)", "DWT(O)", "DFT(O)" };
+
+            // 3. 고정 강도 설정 (잘 보이는 강도로 설정, 예: Alpha 0.2 -> Strength 20.0)
+            float fixedAlpha = 0.2f;
+            float fixedStrength = fixedAlpha * 100.0f;
+
+            // === 2중 루프: 알고리즘 -> 공격 ===
+            for (int algoIdx : targetAlgos) {
+                for (const auto& scenario : g_AttackScenarios) {
+
+                    // (A) Embedding (기존 파이프라인 재사용)
+                    // 반복 횟수(Samples)는 1회면 충분함 (BER 측정용이므로)
+                    if (algoIdx == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4, resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, fixedStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                    else if (algoIdx == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4, resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, fixedStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                    else if (algoIdx == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+                    else if (algoIdx == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+                    else if (algoIdx == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+                    else if (algoIdx == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+                    else if (algoIdx == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+                    else if (algoIdx == 7) Run_Optimized_OneShot_Pipeline(dftOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+
+                    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                    // (B) Attack Execution
+                    GLuint texMarked = 0; // Embed 결과 텍스처
+                    if (algoIdx == 0) texMarked = resMgr.tex_Final;
+                    else if (algoIdx == 1) texMarked = resMgr.tex_DWT_Final;
+                    else if (algoIdx == 2 || algoIdx == 3) texMarked = resMgr.tex_SVD_Final;
+                    else if (algoIdx == 4) texMarked = resMgr.tex_DFT_Final;
+                    else texMarked = resMgr.tex_Opt_Final;
+
+                    // 공격 수행 -> 결과는 tex_Attacked에 저장
+                    if (scenario.type == AttackType::NONE) {
+                        // 공격 없으면 그냥 복사
+                        glCopyImageSubData(texMarked, GL_TEXTURE_2D, 0, 0, 0, 0,
+                            resMgr.tex_Attacked, GL_TEXTURE_2D, 0, 0, 0, 0,
+                            currentWidth, currentHeight, 1);
+                    }
+                    else {
+                        GLuint prog = 0;
+                        if (scenario.type == AttackType::CROP_CENTER) prog = atkCrop;
+                        else if (scenario.type == AttackType::RESIZE_SCALE) prog = atkResize;
+                        else if (scenario.type == AttackType::NOISE_SNP) prog = atkNoise;
+                        else if (scenario.type == AttackType::QUANTIZATION) prog = atkQuant;
+                        else if (scenario.type == AttackType::GAMMA_CORRECT) prog = atkGamma;
+                        else if (scenario.type == AttackType::BRIGHTNESS) prog = atkBright;
+                        else if (scenario.type == AttackType::ROTATION) prog = atkRot;
+
+                        Run_Attack_Shader(prog, texMarked, resMgr.tex_Attacked, currentWidth, currentHeight, scenario.param, scenario.type);
+                    }
+
+                    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                    // (C) Extraction (입력을 tex_Attacked로 변경!)
+                    if (algoIdx == 0) {
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern);
+                        Run_Legacy_Extraction(extractDctSSProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks);
+                    }
+                    else if (algoIdx == 1) {
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern);
+                        Run_Legacy_Extraction(extractDwtSSProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks);
+                    }
+                    else if (algoIdx == 2 || algoIdx == 3) {
+                        Run_Extraction_Pipeline(extractSvdProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+                    }
+                    else if (algoIdx == 4) {
+                        Run_Full_FFT_Extraction(dftPadProg, dftReorderProg, dftCoreProg, extractDftGlobalProg,
+                            resMgr.tex_Source, resMgr.tex_Attacked,
+                            resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.tex_DFT_Complex, resMgr.buf_ExtractedBits,
+                            currentWidth, currentHeight, 32768);
+                    }
+                    else if (algoIdx == 5) Run_Extraction_Pipeline(extractDctProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+                    else if (algoIdx == 6) Run_Extraction_Pipeline(extractDwtProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+                    else if (algoIdx == 7) Run_Extraction_Pipeline(extractDftProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+
+                    glFinish();
+
+                    // (D) BER & PSNR Calculation
+                    // PSNR은 "공격받은 이미지" vs "원본" 비교 (공격 강도 확인용)
+                    // 워터마크가 살아있는지는 BER로 확인
+                    std::vector<unsigned char> srcPx(currentWidth * currentHeight * 4);
+                    std::vector<unsigned char> atkPx(currentWidth * currentHeight * 4);
+
+                    glBindTexture(GL_TEXTURE_2D, resMgr.tex_Source);
+                    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, srcPx.data());
+                    glBindTexture(GL_TEXTURE_2D, resMgr.tex_Attacked);
+                    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, atkPx.data());
+
+                    // Read Bits
+                    std::vector<uint> orgBits(resMgr.numBlocks4x4);
+                    std::vector<uint> extBits(resMgr.numBlocks4x4);
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, resMgr.buf_Bitstream);
+                    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, orgBits.size() * sizeof(uint), orgBits.data());
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, resMgr.buf_ExtractedBits);
+                    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, extBits.size() * sizeof(uint), extBits.data());
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+                    // Calc Metrics
+                    ImageMetrics m = CalculateMetrics(srcPx, atkPx, currentWidth, currentHeight);
+                    size_t validBits = (algoIdx == 0 || algoIdx == 1) ? resMgr.numBlocks : resMgr.numBlocks4x4;
+                    // 서명 길이(64)는 위에서 정의한 messageLength와 같아야 합니다.
+                    int msgLen = 64;
+
+                    // 원본 서명 추출 (반복된 패턴의 첫 64개만 가져옴)
+                    std::vector<uint> originalSignature;
+                    if (orgBits.size() >= msgLen) {
+                        originalSignature.assign(orgBits.begin(), orgBits.begin() + msgLen);
+                    }
+
+                    // 복구 BER 계산
+                    float recoveredBER = CalculateRecoveredBER(extBits, originalSignature, msgLen);
+
+                    // 참고용: Raw BER도 같이 보고 싶으면 남겨둠
+                    float rawBER = CalculateBER(orgBits, extBits, validBits);
+
+                    // (E) Log & Save
+                    // 화면에는 Recovered BER을 출력해서 "성공"했음을 확인
+                    std::cout << "Algo: " << algoNames[algoIdx] << " | Attack: " << scenario.name
+                        << " | Recov.BER: " << recoveredBER << " (Raw: " << rawBER << ")"
+                        << " | PSNR: " << m.psnr << std::endl;
+
+                    // CSV에는 Recovered BER 저장
+                    g_AttackResults.push_back({ algoNames[algoIdx], scenario.name, scenario.param, rawBER, recoveredBER, m.psnr });
+                }
+            }
+
+            // CSV 저장
+            SaveAttackResultsToCSV(g_AttackResults, "Attack_Robustness_Results.csv");
+            g_RunAttackTest = false;
+            std::cout << "[System] Attack Simulation Finished!" << std::endl;
+        }
+
+        else if (g_RunAlphaAttackSweep) {
+
+            // 1. 공격 셰이더 로드 (static으로 한 번만 로드)
+            static GLuint atkCrop = loadComputeShader("Attack/attack_crop.comp");
+            static GLuint atkResize = loadComputeShader("Attack/attack_resize.comp");
+            static GLuint atkNoise = loadComputeShader("Attack/attack_noise.comp");
+            static GLuint atkQuant = loadComputeShader("Attack/attack_quantize.comp");
+            static GLuint atkGamma = loadComputeShader("Attack/attack_gamma.comp");
+            static GLuint atkBright = loadComputeShader("Attack/attack_brightness.comp");
+            static GLuint atkRot = loadComputeShader("Attack/attack_rotation.comp");
+
+            // 2. 타겟 알고리즘 및 공격 설정
+            int targetAlgos[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+            std::string algoNames[] = { "DCT(L)", "DWT(L)", "SVD(S)", "SVD(I)", "DFT(L)", "DCT(O)", "DWT(O)", "DFT(O)" };
+
+            // ★ 해상도 목록 정의 (FHD, 4K)
+            struct ResConfig { std::string name; int w; int h; };
+            std::vector<ResConfig> targetResolutions = {
+                { "FHD", 1920, 1080 },
+                { "4K", 3840, 2160 }
+            };
+
+            // =========================================================
+        // Loop 1: Resolution (FHD -> 4K)
+        // =========================================================
+            for (const auto& res : targetResolutions) {
+
+                std::cout << "\n[System] Switching to Resolution: " << res.name << " (" << res.w << "x" << res.h << ")" << std::endl;
+
+                // ★ 해상도 변경 및 메모리 재할당
+                resMgr.Resize(res.w, res.h, coeffsToUse);
+                currentWidth = res.w;
+                currentHeight = res.h;
+                glFinish(); // 메모리 할당 대기
+
+                // 3. ★ Alpha Loop 추가 (0.0 ~ 1.5, 0.1 간격)
+                for (float alpha = 0.0f; alpha <= 1.51f; alpha += 0.1f) {
+
+                    float currentStrength = alpha * 100.0f; // 셰이더용 강도 변환
+                    std::cout << "\n>>> Processing Alpha: " << alpha << " <<<" << std::endl;
+
+                    // Algorithm Loop
+                    for (int algoIdx : targetAlgos) {
+                        // Attack Loop
+                        for (const auto& scenario : g_AttackScenarios) {
+
+                            // (A) Embedding (현재 Alpha 강도로 삽입)
+                            if (algoIdx == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4, resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                            else if (algoIdx == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4, resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
+                            else if (algoIdx == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                            else if (algoIdx == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                            else if (algoIdx == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                            else if (algoIdx == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                            else if (algoIdx == 6) Run_Optimized_OneShot_Pipeline(dwtOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                            else if (algoIdx == 7) Run_Optimized_OneShot_Pipeline(dftOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+
+                            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                            // (B) Attack Execution
+                            GLuint texMarked = 0;
+                            if (algoIdx == 0) texMarked = resMgr.tex_Final;
+                            else if (algoIdx == 1) texMarked = resMgr.tex_DWT_Final;
+                            else if (algoIdx == 2 || algoIdx == 3) texMarked = resMgr.tex_SVD_Final;
+                            else if (algoIdx == 4) texMarked = resMgr.tex_DFT_Final;
+                            else texMarked = resMgr.tex_Opt_Final;
+
+                            if (scenario.type == AttackType::NONE) {
+                                glCopyImageSubData(texMarked, GL_TEXTURE_2D, 0, 0, 0, 0, resMgr.tex_Attacked, GL_TEXTURE_2D, 0, 0, 0, 0, currentWidth, currentHeight, 1);
+                            }
+                            else {
+                                GLuint prog = 0;
+                                if (scenario.type == AttackType::CROP_CENTER) prog = atkCrop;
+                                else if (scenario.type == AttackType::RESIZE_SCALE) prog = atkResize;
+                                else if (scenario.type == AttackType::NOISE_SNP) prog = atkNoise;
+                                else if (scenario.type == AttackType::QUANTIZATION) prog = atkQuant;
+                                else if (scenario.type == AttackType::GAMMA_CORRECT) prog = atkGamma;
+                                else if (scenario.type == AttackType::BRIGHTNESS) prog = atkBright;
+                                else if (scenario.type == AttackType::ROTATION) prog = atkRot;
+
+                                Run_Attack_Shader(prog, texMarked, resMgr.tex_Attacked, currentWidth, currentHeight, scenario.param, scenario.type);
+                            }
+                            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                            // (C) Extraction
+                            if (algoIdx == 0) { glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern); Run_Legacy_Extraction(extractDctSSProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks); }
+                            else if (algoIdx == 1) { glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, resMgr.buf_Pattern); Run_Legacy_Extraction(extractDwtSSProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks); }
+                            else if (algoIdx == 2 || algoIdx == 3) Run_Extraction_Pipeline(extractSvdProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+                            else if (algoIdx == 4) Run_Full_FFT_Extraction(dftPadProg, dftReorderProg, dftCoreProg, extractDftGlobalProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.tex_DFT_Complex, resMgr.buf_ExtractedBits, currentWidth, currentHeight, 32768);
+                            else if (algoIdx == 5) Run_Extraction_Pipeline(extractDctProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+                            else if (algoIdx == 6) Run_Extraction_Pipeline(extractDwtProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+                            else if (algoIdx == 7) Run_Extraction_Pipeline(extractDftProg, resMgr.tex_Source, resMgr.tex_Attacked, resMgr.buf_ExtractedBits, currentWidth, currentHeight, resMgr.numBlocks4x4);
+
+                            glFinish();
+
+                            // (D) Metric Calculation (Recovered BER)
+
+                            // PSNR은 "공격받은 이미지" vs "원본" 비교 (공격 강도 확인용)
+                            // 워터마크가 살아있는지는 BER로 확인
+                            std::vector<unsigned char> srcPx(currentWidth * currentHeight * 4);
+                            std::vector<unsigned char> watermarkedPx(currentWidth * currentHeight * 4);
+
+                            glBindTexture(GL_TEXTURE_2D, resMgr.tex_Source);
+                            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, srcPx.data());
+
+                            GLuint texWatermarked = 0;
+                            if (algoIdx == 0) texWatermarked = resMgr.tex_Final;
+                            else if (algoIdx == 1) texWatermarked = resMgr.tex_DWT_Final;
+                            else if (algoIdx == 2 || algoIdx == 3) texWatermarked = resMgr.tex_SVD_Final;
+                            else if (algoIdx == 4) texWatermarked = resMgr.tex_DFT_Final;
+                            else texWatermarked = resMgr.tex_Opt_Final;
+
+                            glBindTexture(GL_TEXTURE_2D, texWatermarked);
+                            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, watermarkedPx.data());
+
+
+                            // 간략화를 위해 버퍼 읽는 부분만 표시
+                            std::vector<uint> orgBits(resMgr.numBlocks4x4);
+                            std::vector<uint> extBits(resMgr.numBlocks4x4);
+                            glBindBuffer(GL_SHADER_STORAGE_BUFFER, resMgr.buf_Bitstream);
+                            glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, orgBits.size() * sizeof(uint), orgBits.data());
+                            glBindBuffer(GL_SHADER_STORAGE_BUFFER, resMgr.buf_ExtractedBits);
+                            glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, extBits.size() * sizeof(uint), extBits.data());
+                            glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+                            // 2. Raw BER 계산 (단순 1:1 비교)
+                            // Legacy는 8x8 블록 수만큼, Optimized는 4x4 블록 수만큼 유효
+                            size_t validBits = (algoIdx == 0 || algoIdx == 1) ? resMgr.numBlocks : resMgr.numBlocks4x4;
+                            float rawBER = CalculateBER(orgBits, extBits, validBits);
+
+                            // Recovered BER 사용
+                            int msgLen = 64;
+                            std::vector<uint> originalSignature;
+                            if (orgBits.size() >= msgLen) originalSignature.assign(orgBits.begin(), orgBits.begin() + msgLen);
+
+                            float recoveredBER = CalculateRecoveredBER(extBits, originalSignature, msgLen);
+
+                            // PSNR 계산 (생략 가능하거나 필요시 추가)
+                            // 3. PSNR 계산 (원본 vs 최종)
+                            ImageMetrics m = CalculateMetrics(srcPx, watermarkedPx, currentWidth, currentHeight);
+
+                            // CSV 저장을 위해 Alpha 값을 구조체에 저장하는 것이 좋음
+                            // 기존 AttackResult 구조체에 'alpha' 필드가 없다면 추가하거나, 'param'에 꼼수를 써야 함.
+                            // 제일 좋은 건 CSV 형식을 바꾸는 것.
+
+                            // (E) 저장 (CSV 포맷 변경: Alpha 컬럼 추가)
+                            std::ofstream file;
+                            // 파일이 없거나 첫 루프면 헤더 생성 (덮어쓰기)
+                            if (alpha == 0.0f && algoIdx == 0 && scenario.type == AttackType::NONE && !std::filesystem::exists("Alpha_Attack_Sweep_Results.csv")) {
+                                file.open("Alpha_Attack_Sweep_Results.csv", std::ios::out);
+                                // ★ 헤더에 PSNR 추가
+                                file << "Resolution,Algorithm,Alpha,Attack Type,Parameter,RawBER,RecovBER,PSNR,SSIM\n";
+                            }
+                            else {
+                                file.open("Alpha_Attack_Sweep_Results.csv", std::ios::app); // 이어쓰기
+                            }
+
+                            // 데이터 쓰기
+                            file << res.name << ","
+                                << algoNames[algoIdx] << ","
+                                << alpha << ","
+                                << scenario.name << ","
+                                << scenario.param << ","
+                                << rawBER << ","
+                                << recoveredBER << ","
+                                << m.psnr << ","
+                                << m.ssim << "\n"; // ★ PSNR 값 저장
+
+                            file.close();
+
+                            // 콘솔 로그 (진행 상황 확인용)
+                            // 너무 많이 출력하면 느리니까 No Attack일 때만 자세히, 나머지는 간략히
+                            if (scenario.type == AttackType::NONE) {
+                                std::cout << "[" << res.name << "]" << "Algo: " << algoNames[algoIdx] << " | Alpha: " << alpha
+                                    << " | PSNR: " << m.psnr << " | SSIM: " << m.ssim << " | RAW BER: " << rawBER << " | BER: " << recoveredBER << std::endl;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 끝나면 FHD로 복귀 (UI용)
+            resMgr.Resize(1920, 1080, coeffsToUse);
+            currentWidth = 1920; currentHeight = 1080;
+
+            g_RunAlphaAttackSweep = false;
+            std::cout << "[System] Alpha-Attack Sweep Finished!" << std::endl;
         }
 
         else {
@@ -1344,6 +1919,8 @@ int main()
             }
             
         }
+
+
 
         ImGui::Render();
         int display_w, display_h;

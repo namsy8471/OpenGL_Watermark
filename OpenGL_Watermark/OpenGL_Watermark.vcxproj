@@ -148,6 +148,13 @@
     <ClCompile Include="src\Core\main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="src\Shaders\Attack\attack_brightness.comp" />
+    <None Include="src\Shaders\Attack\attack_crop.comp" />
+    <None Include="src\Shaders\Attack\attack_gamma.comp" />
+    <None Include="src\Shaders\Attack\attack_noise.comp" />
+    <None Include="src\Shaders\Attack\attack_quantize.comp" />
+    <None Include="src\Shaders\Attack\attack_resize.comp" />
+    <None Include="src\Shaders\Attack\attack_rotation.comp" />
     <None Include="src\Shaders\DCT\dct_opt_4x4.comp" />
     <None Include="src\Shaders\DCT\dct_pass1_rows.comp" />
     <None Include="src\Shaders\DCT\dct_pass2_cols_embed.comp" />
@@ -167,6 +174,7 @@
     <None Include="src\Shaders\Extraction\extract_dct.comp" />
     <None Include="src\Shaders\Extraction\extract_dct_ss.comp" />
     <None Include="src\Shaders\Extraction\extract_dft.comp" />
+    <None Include="src\Shaders\Extraction\extract_dft_global.comp" />
     <None Include="src\Shaders\Extraction\extract_dwt.comp" />
     <None Include="src\Shaders\Extraction\extract_dwt_ss.comp" />
     <None Include="src\Shaders\Extraction\extract_svd.comp" />

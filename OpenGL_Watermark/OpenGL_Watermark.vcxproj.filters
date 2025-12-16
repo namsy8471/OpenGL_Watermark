@@ -59,5 +59,13 @@
     <None Include="src\Shaders\Extraction\extract_dft.comp" />
     <None Include="src\Shaders\Extraction\extract_dct_ss.comp" />
     <None Include="src\Shaders\Extraction\extract_dwt_ss.comp" />
+    <None Include="src\Shaders\Extraction\extract_dft_global.comp" />
+    <None Include="src\Shaders\Attack\attack_crop.comp" />
+    <None Include="src\Shaders\Attack\attack_resize.comp" />
+    <None Include="src\Shaders\Attack\attack_noise.comp" />
+    <None Include="src\Shaders\Attack\attack_quantize.comp" />
+    <None Include="src\Shaders\Attack\attack_gamma.comp" />
+    <None Include="src\Shaders\Attack\attack_brightness.comp" />
+    <None Include="src\Shaders\Attack\attack_rotation.comp" />
   </ItemGroup>
 </Project>

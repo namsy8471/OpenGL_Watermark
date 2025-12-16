@@ -1,0 +1,15 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+layout(rgba32f, binding = 0) readonly uniform image2D img_in;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_out;
+
+uniform float Gamma; // 2.2 = ¾îµÎ¿öÁü, 0.5 = ¹à¾ÆÁü
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (pos.x >= imageSize(img_in).x || pos.y >= imageSize(img_in).y) return;
+
+    vec4 color = imageLoad(img_in, pos);
+    color.rgb = pow(color.rgb, vec3(1.0 / Gamma)); // °¨¸¶ º¸Á¤
+    imageStore(img_out, pos, color);
+}

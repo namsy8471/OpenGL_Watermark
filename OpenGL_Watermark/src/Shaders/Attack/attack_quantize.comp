@@ -1,0 +1,18 @@
+#version 430 core
+layout(local_size_x = 32, local_size_y = 32) in;
+layout(rgba32f, binding = 0) readonly uniform image2D img_in;
+layout(rgba32f, binding = 1) writeonly uniform image2D img_out;
+
+uniform float Quality; // 10.0 ~ 255.0 (낮을수록 깨짐)
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (pos.x >= imageSize(img_in).x || pos.y >= imageSize(img_in).y) return;
+
+    vec4 color = imageLoad(img_in, pos);
+
+    // 색상 단계를 Quality 단계로 줄여버림 (예: 256단계 -> 8단계)
+    color.rgb = floor(color.rgb * Quality) / Quality;
+
+    imageStore(img_out, pos, color);
+}
