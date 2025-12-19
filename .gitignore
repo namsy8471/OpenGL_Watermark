@@ -37,3 +37,5 @@ Build/
 /OpenGL_Watermark/Result_DCT.png
 /OpenGL_Watermark/Result_DWT.png
 /OpenGL_Watermark/Result_SVD.png
+/OpenGL_Watermark/Alpha_Sweep_Results_Ultimate.csv
+/OpenGL_Watermark/Attack_Robustness_Results.csv
