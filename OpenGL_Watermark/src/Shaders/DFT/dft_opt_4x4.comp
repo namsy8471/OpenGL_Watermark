@@ -104,8 +104,8 @@ void main() {
         uint bitIdx = (gl_GlobalInvocationID.y * stride + gl_GlobalInvocationID.x) % BitSize;
 
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
-        float alpha = Strength * 0.0400;
-        //float alpha = Strength * 0.5;
+//        float alpha = Strength * 0.0400; // for FHD
+        float alpha = Strength * 0.018; // for 4K
 
         // Target (1,2)
         vec2 val = data.c[1][2];

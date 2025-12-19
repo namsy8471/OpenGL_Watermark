@@ -37,7 +37,8 @@ void main() {
             // 비트 정보
             uint bit = bits[bitIdx];
             float w = (bit == 1) ? 1.0 : -1.0;
-            float alpha = Strength * 0.026; // DFT는 값이 매우 크므로 스케일링 작게
+//            float alpha = Strength * 0.026; // For FHD
+            float alpha = Strength * 0.0234; // For 4K
 
             // 하이브리드 로직
             float newMag = mag;

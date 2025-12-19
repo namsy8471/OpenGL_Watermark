@@ -115,7 +115,8 @@ void main()
                 uint bit = bitstream_buf.Bitstream[blockLinearIndex];
                 float bit_sign = (bit == 1) ? 1.0f : -1.0f;
                 float pattern_value = 1.0; 
-                float alpha = EmbeddingStrength * 0.0046; 
+                //float alpha = EmbeddingStrength * 0.0046; // For FHD
+                float alpha = EmbeddingStrength * 0.00207; // For 4K
 
                 // 1. 현재 블록의 '밝기(Y) 계수'를 계산
                 // DCT는 선형이므로, RGB 계수에서 바로 Y 계수를 구할 수 있음

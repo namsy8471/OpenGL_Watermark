@@ -70,7 +70,8 @@ void main() {
     
         // 비트 값 (-1.0 or 1.0)
         float w = (bits[bitIdx] == 1) ? 1.0 : -1.0;
-        float alpha = Strength * 0.00051;
+//        float alpha = Strength * 0.00051; // for FHD
+        float alpha = Strength * 0.000459; // for 4K
 
         // ★ Spread Spectrum: 3개의 계수에 분산 삽입
         // 타겟: (1,2), (2,1), (2,2) -> 중간 주파수 대역

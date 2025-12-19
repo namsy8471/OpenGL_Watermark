@@ -68,7 +68,8 @@ void main() {
 
         // 타겟: 수평 상세 계수 (0, 1)
         float val = Coeffs.m[0][1];
-        float alpha = Strength * 0.1195;
+//        float alpha = Strength * 0.1195; // for FHD
+        float alpha = Strength * 0.2151; // for 4K
 
         // ★ [핵심 수정] 하이브리드 방식 적용
         if (abs(val) < 1e-5) {

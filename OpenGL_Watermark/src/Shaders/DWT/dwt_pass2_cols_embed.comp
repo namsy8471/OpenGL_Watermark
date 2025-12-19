@@ -83,7 +83,8 @@ void main()
                 uint bit = bitstream_buf.Bitstream[blockLinearIndex];
                 // 1이면 증폭(1+a), 0이면 감쇄(1-a)
                 
-                float alpha = EmbeddingStrength * 0.0011; 
+                //float alpha = EmbeddingStrength * 0.0011; // For FHD
+                float alpha = EmbeddingStrength * 0.00088; // For 4K
 
                 // 1. Y 계수 계산
                 float Y_coeff = 0.299 * finalDwtCoeffRGB.r + 

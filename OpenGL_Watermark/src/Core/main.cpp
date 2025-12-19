@@ -1158,7 +1158,7 @@ int main()
     bool g_RunAlphaSweep = false;
     double g_SweepCurrentAlpha = 0.0f;
     int g_SweepAlgoIndex = 0; // 0~6 (모든 알고리즘 순회)
-    int g_SweepResIndex = 0; // 0: FHD, 1: 4K
+    int g_SweepResIndex = 1; // 0: FHD, 1: 4K
     bool g_RunAttackTest = false;
     std::vector<AttackResult> g_AttackResults;
 
@@ -1391,7 +1391,22 @@ int main()
                 
                 if (i == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4, resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
                 else if (i == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4, resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-                else if (i == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                else if (i == 2) Run_SVD_Pipeline(
+                    svd_progs,              // 셰이더 프로그램 배열 (main 상단에 로드됨)
+                    svd_progs,               // 텍스처 배열
+                    resMgr.buf_Bitstream,   // 워터마크 비트 버퍼
+                    resMgr.buf_Pattern,     // 패턴 버퍼
+                    currentWidth,
+                    currentHeight,
+                    g_JacobiIterations,     // 자코비 반복 횟수 (UI 연동)
+                    g_SigmaThreshold,       // 임계값 (UI 연동)
+                    g_EnableEmbed,          // 워터마크 삽입 여부
+                    currentStrength,    // 강도
+                    g_CompressionThreshold, // 압축 임계값
+                    coeffsToUse,            // 사용 계수 (보통 10)
+                    resMgr.numBlocks,       // Legacy는 8x8 블록 개수 사용
+                    resMgr.numBlocks        // 비트 길이도 블록 개수와 동일하게 설정
+                );
                 else if (i == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
                 else if (i == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
                 else if (i == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
@@ -1514,7 +1529,7 @@ int main()
                     g_SweepResIndex++; // ★ 다음 해상도 (FHD -> 4K)
 
                     // 모든 해상도 완료?
-                    if (g_SweepResIndex >= 1) {
+                    if (g_SweepResIndex >= 2) {
                         g_RunAlphaSweep = false;
                         g_SweepResIndex = 0; // 초기화
                         SaveResultsToCSV(g_Results, "Alpha_Sweep_Results_Ultimate.csv");
@@ -1557,7 +1572,22 @@ int main()
                     // 반복 횟수(Samples)는 1회면 충분함 (BER 측정용이므로)
                     if (algoIdx == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4, resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, fixedStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
                     else if (algoIdx == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4, resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, fixedStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-                    else if (algoIdx == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
+                    else if (algoIdx == 2) Run_SVD_Pipeline(
+                        svd_progs,              // 셰이더 프로그램 배열 (main 상단에 로드됨)
+                        svd_progs,               // 텍스처 배열
+                        resMgr.buf_Bitstream,   // 워터마크 비트 버퍼
+                        resMgr.buf_Pattern,     // 패턴 버퍼
+                        currentWidth,
+                        currentHeight,
+                        g_JacobiIterations,     // 자코비 반복 횟수 (UI 연동)
+                        g_SigmaThreshold,       // 임계값 (UI 연동)
+                        g_EnableEmbed,          // 워터마크 삽입 여부
+                        fixedStrength,    // 강도
+                        g_CompressionThreshold, // 압축 임계값
+                        coeffsToUse,            // 사용 계수 (보통 10)
+                        resMgr.numBlocks,       // Legacy는 8x8 블록 개수 사용
+                        resMgr.numBlocks        // 비트 길이도 블록 개수와 동일하게 설정
+                    );
                     else if (algoIdx == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
                     else if (algoIdx == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
                     else if (algoIdx == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, fixedStrength);
@@ -1693,7 +1723,7 @@ int main()
             // ★ 해상도 목록 정의 (FHD, 4K)
             struct ResConfig { std::string name; int w; int h; };
             std::vector<ResConfig> targetResolutions = {
-                { "FHD", 1920, 1080 },
+                //{ "FHD", 1920, 1080 },
                 { "4K", 3840, 2160 }
             };
 
@@ -1724,7 +1754,22 @@ int main()
                             // (A) Embedding (현재 Alpha 강도로 삽입)
                             if (algoIdx == 0) Run_Compute_Pipeline(dctPass1, dctPass2, dctPass3, dctPass4, resMgr.tex_Source, resMgr.tex_Intermediate, resMgr.tex_DCTOutput, resMgr.tex_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
                             else if (algoIdx == 1) Run_Compute_Pipeline(dwtPass1, dwtPass2, dwtPass3, dwtPass4, resMgr.tex_Source, resMgr.tex_DWT_Intermediate, resMgr.tex_DWT_Output, resMgr.tex_DWT_Final, resMgr.buf_Bitstream, resMgr.buf_Pattern, currentWidth, currentHeight, true, currentStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
-                            else if (algoIdx == 2) Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
+                            else if (algoIdx == 2) Run_SVD_Pipeline(
+                                svd_progs,              // 셰이더 프로그램 배열 (main 상단에 로드됨)
+                                svd_progs,               // 텍스처 배열
+                                resMgr.buf_Bitstream,   // 워터마크 비트 버퍼
+                                resMgr.buf_Pattern,     // 패턴 버퍼
+                                currentWidth,
+                                currentHeight,
+                                g_JacobiIterations,     // 자코비 반복 횟수 (UI 연동)
+                                g_SigmaThreshold,       // 임계값 (UI 연동)
+                                g_EnableEmbed,          // 워터마크 삽입 여부
+                                currentStrength,    // 강도
+                                g_CompressionThreshold, // 압축 임계값
+                                coeffsToUse,            // 사용 계수 (보통 10)
+                                resMgr.numBlocks,       // Legacy는 8x8 블록 개수 사용
+                                resMgr.numBlocks        // 비트 길이도 블록 개수와 동일하게 설정
+                            );
                             else if (algoIdx == 3) Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
                             else if (algoIdx == 4) Run_Full_FFT_Pipeline(dftPadProg, dftReorderProg, dftCoreProg, dftEmbedProg, dftCropProg, debugProbeProg, resMgr.tex_Source, resMgr.tex_DFT_Final, resMgr.tex_FFT_Ping, resMgr.tex_FFT_Pong, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
                             else if (algoIdx == 5) Run_Optimized_OneShot_Pipeline(dctOptProg, resMgr.tex_Source, resMgr.tex_Opt_Final, resMgr.buf_Bitstream, currentWidth, currentHeight, true, currentStrength);
@@ -1878,8 +1923,23 @@ int main()
                     g_EnableEmbed, g_EmbeddingStrength, coeffsToUse, resMgr.numBlocks, resMgr.numBlocks);
             }
             else if (g_AlgorithmChoice == 2) { // SVD Block
-                Run_Optimized_OneShot_Pipeline(svd4x4Prog, resMgr.tex_Source, resMgr.tex_SVD_Final,
-                    resMgr.buf_Bitstream, currentWidth, currentHeight, g_EnableEmbed, g_EmbeddingStrength);
+                // 2. Legacy SVD 파이프라인 실행
+                Run_SVD_Pipeline(
+                    svd_progs,              // 셰이더 프로그램 배열 (main 상단에 로드됨)
+                    svd_progs,               // 텍스처 배열
+                    resMgr.buf_Bitstream,   // 워터마크 비트 버퍼
+                    resMgr.buf_Pattern,     // 패턴 버퍼
+                    currentWidth,
+                    currentHeight,
+                    g_JacobiIterations,     // 자코비 반복 횟수 (UI 연동)
+                    g_SigmaThreshold,       // 임계값 (UI 연동)
+                    g_EnableEmbed,          // 워터마크 삽입 여부
+                    g_EmbeddingStrength,    // 강도
+                    g_CompressionThreshold, // 압축 임계값
+                    coeffsToUse,            // 사용 계수 (보통 10)
+                    resMgr.numBlocks,       // Legacy는 8x8 블록 개수 사용
+                    resMgr.numBlocks        // 비트 길이도 블록 개수와 동일하게 설정
+                );
             }
             else if (g_AlgorithmChoice == 3) { // SVD Implicit
                 Run_Optimized_OneShot_Pipeline(svdImplictProg, resMgr.tex_Source, resMgr.tex_SVD_Final,
